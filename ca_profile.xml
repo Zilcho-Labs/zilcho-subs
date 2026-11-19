@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>Zilcho Labs makes small, self-hosted media tools. This repository holds Zilcho Subs, which makes subtitles and song lyrics for your own media library on your own server: subtitles from speech with a local Whisper model, offline translation, translation of existing .srt files, and line- or word-synced .lrc lyrics. It runs on the CPU and uploads nothing to a cloud service. For help, bug reports and feature requests, open an issue at https://github.com/Zilcho-Labs/zilcho-subs/issues</Profile>
+  <Icon>https://raw.githubusercontent.com/Zilcho-Labs/zilcho-subs/main/zilcho_subs/static/branding/app-logo.png</Icon>
+  <WebPage>https://zilcholabs.com</WebPage>
+</CommunityApplications>

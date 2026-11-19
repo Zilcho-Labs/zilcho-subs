@@ -14,7 +14,13 @@ def test_template_and_static_assets():
     tree=ET.parse(ROOT/'unraid/zilcho-subs.xml').getroot()
     configs={e.attrib['Name']:e for e in tree.findall('Config')}
     assert configs['Media Library'].attrib['Target']=='/media' and configs['Media Library'].attrib['Mode']=='rw'
-    assert configs['Downloads (optional)'].attrib['Mode']=='ro'
+    assert '/downloads' not in {e.attrib['Target'] for e in configs.values()}  # never used by the app
+    public='https://raw.githubusercontent.com/Zilcho-Labs/zilcho-subs/main/'
+    assert tree.findtext('Repository').startswith('ghcr.io/zilcho-labs/zilcho-subs:')
+    assert tree.findtext('TemplateURL')==public+'unraid/zilcho-subs.xml'
+    assert tree.findtext('Icon')==public+'zilcho_subs/static/branding/app-logo.png' and (ROOT/'zilcho_subs/static/branding/app-logo.png').is_file()
+    profile=ET.parse(ROOT/'ca_profile.xml').getroot()  # Unraid Community Applications needs a non-empty Profile
+    assert profile.tag=='CommunityApplications' and len(profile.findtext('Profile').strip())>50
     assert configs['Web UI Password'].attrib['Mask']=='true'
     assert tree.findtext('Privileged')=='false'
     html=(ROOT/'zilcho_subs/static/index.html').read_text(encoding='utf-8')

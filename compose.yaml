@@ -16,8 +16,6 @@ services:
     volumes:
       - "${APPDATA_PATH:-./config}:/config"
       - "${MEDIA_PATH:?Set MEDIA_PATH to your imported media library}:/media:rw"
-      # Optional: downloads are mounted read-only and are not watched in v0.1.
-      - "${DOWNLOADS_PATH:-./downloads}:/downloads:ro"
     cpus: "${CPU_LIMIT:-2}"
     mem_limit: "${MEMORY_LIMIT:-6g}"
     read_only: true

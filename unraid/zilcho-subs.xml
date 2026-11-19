@@ -2,17 +2,19 @@
 <Container version="2">
   <Name>Zilcho-Subs</Name>
   <Repository>ghcr.io/zilcho-labs/zilcho-subs:latest</Repository>
-  <Registry>https://github.com/Zilcho-Labs/zilcho-subs</Registry>
+  <Registry>https://github.com/Zilcho-Labs/zilcho-subs/pkgs/container/zilcho-subs</Registry>
   <Network>bridge</Network><MyIP></MyIP><Shell>sh</Shell><Privileged>false</Privileged>
   <Support>https://github.com/Zilcho-Labs/zilcho-subs/issues</Support>
   <Project>https://github.com/Zilcho-Labs/zilcho-subs</Project>
-  <Overview>Local AI subtitle and song-lyric creation and translation, on your own server. Models and translation packs download only when requested. Processes final imported media; preserves videos and existing subtitles. CPU-first. Initial automatic watching is off. Review README before enabling it.</Overview>
-  <Category>MediaApp:Video</Category><WebUI>http://[IP]:[PORT:8765]/</WebUI>
-  <TemplateURL></TemplateURL><ExtraParams>--init --cpus=2 --memory=6g --security-opt=no-new-privileges</ExtraParams>
+  <Overview>Make subtitles and song lyrics for your own media library, on your own server. Zilcho Subs listens to a video's audio with a local Whisper speech model and writes a selectable .srt track next to it (Jellyfin and most players pick it up), with optional offline translation into other languages. It can also translate existing .srt files and make line- or word-synced .lrc lyric files for music. Runs on the CPU; nothing is uploaded to a cloud service. Speech models and translation packs download only when you ask. Videos, songs and your own subtitle or lyric files are never changed. Set a Web UI password, then open the web UI and follow the first-run steps in the README.</Overview>
+  <Category>MediaApp:Video MediaApp:Music</Category><WebUI>http://[IP]:[PORT:8765]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/Zilcho-Labs/zilcho-subs/main/zilcho_subs/static/branding/app-logo.png</Icon>
+  <ExtraSearchTerms>subtitles captions srt lyrics lrc karaoke whisper transcription translation jellyfin</ExtraSearchTerms>
+  <Requires>A Linux x86-64 server. The default container limit is 2 CPUs and 6 GB of memory; larger speech models need more memory and run slower on the CPU. Models are downloaded into App Data (from about 75 MB for tiny to about 3 GB for large-v3).</Requires>
+  <TemplateURL>https://raw.githubusercontent.com/Zilcho-Labs/zilcho-subs/main/unraid/zilcho-subs.xml</TemplateURL><ExtraParams>--init --cpus=2 --memory=6g --security-opt=no-new-privileges</ExtraParams>
   <Config Name="Web UI Port" Target="8765" Default="8765" Mode="tcp" Description="Choose an unused host port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>
-  <Config Name="Media Library" Target="/media" Default="" Mode="rw" Description="Your final imported movies/TV/anime library. Subtitles are written beside videos. Example: /mnt/user/data/media" Type="Path" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Media Library" Target="/media" Default="" Mode="rw" Description="Your final imported media library (movies, TV, anime and music). Subtitles and lyrics are written next to the files. Example: /mnt/user/data/media" Type="Path" Display="always" Required="true" Mask="false"></Config>
   <Config Name="App Data" Target="/config" Default="/mnt/user/appdata/zilcho-subs" Mode="rw" Description="Persistent settings, SQLite queue, models and transcript cache" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/zilcho-subs</Config>
-  <Config Name="Downloads (optional)" Target="/downloads" Default="" Mode="ro" Description="Optional downloads mapping; v0.1 processes final imports under /media, not active downloads" Type="Path" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Web UI Password" Target="ZILCHO_PASSWORD" Default="" Mode="" Description="Set a unique password, at least 12 characters. Do not expose the UI directly to the internet." Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="User ID" Target="PUID" Default="99" Mode="" Description="Owner UID for app data and new subtitle files" Type="Variable" Display="always" Required="true" Mask="false">99</Config>
   <Config Name="Group ID" Target="PGID" Default="100" Mode="" Description="Group GID; match your media permissions" Type="Variable" Display="always" Required="true" Mask="false">100</Config>

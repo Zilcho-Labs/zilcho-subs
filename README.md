@@ -14,7 +14,7 @@ Made by [Zilcho Labs](https://zilcholabs.com). Zilcho Subs is an independent pro
 - **Sound captions (optional).** Adds captions such as `[Dog barking]` to English subtitles using a small local sound classifier.
 - **Song lyrics.** Makes `.lrc` lyric files for music, line by line and optionally word by word for karaoke-style players. Lines follow the song's phrases.
 - **A queue that's easy to manage.** Pause, reorder, retry and "run next"; an interrupted video resumes from its last finished part. You can also set processing hours and watch library folders automatically.
-- **Your files are never changed.** Videos, songs and existing subtitle or lyric files are never modified or overwritten. New results are always new files, and regenerating makes a new version.
+- **Your files are never changed.** Videos, songs and subtitle or lyric files that you (or another app) made are never modified or overwritten. New subtitles are always new files; regenerating makes a new version. Lyric files that Zilcho Subs made itself are updated in place when you make them again, unless you've edited them, in which case they're yours and left alone.
 
 ## Install
 
@@ -56,7 +56,7 @@ Don't expose the web UI directly to the internet. Use your private network or an
 | `Song.flac` | `Song.lrc` (line-synced lyrics), `Song.txt` (plain lyrics), `Song.words.lrc` (word-by-word) |
 
 - **Existing tracks:** subtitle languages that already have a full track are skipped by default.
-- **Your own lyric files:** if a song already has its own `Song.lrc`, new lyrics are saved as `Song.AI.lrc` instead.
+- **Lyric files:** if a song already has its own `Song.lrc`, new lyrics are saved as `Song.AI.lrc` instead. Making lyrics again replaces the files Zilcho Subs wrote, unless you've edited them since.
 - **Word timing in `Song.lrc`:** a setting can put the word-by-word timing into `Song.lrc` itself, for players that only read that file.
 - **Editing:** subtitles and lyrics can be previewed and edited in the app.
 
