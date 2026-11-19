@@ -1,0 +1,6 @@
+{
+  "image": "python:3.11-slim-bookworm",
+  "index_digest": "sha256:a83ba18aef0f865b1a4a611c2cf460fe446f2795673bbb9fe43be570439e3b39",
+  "linux_amd64_manifest": "sha256:e8c69d86735f6df3efa06b324694fe51f0422785f83a3bd463052636c2421944",
+  "registry": "registry-1.docker.io/library/python"
+}

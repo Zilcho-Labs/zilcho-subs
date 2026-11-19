@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Zilcho-Subs</Name>
+  <Repository>ghcr.io/zilcho-labs/zilcho-subs:latest</Repository>
+  <Registry>https://github.com/Zilcho-Labs/zilcho-subs</Registry>
+  <Network>bridge</Network><MyIP></MyIP><Shell>sh</Shell><Privileged>false</Privileged>
+  <Support>https://github.com/Zilcho-Labs/zilcho-subs/issues</Support>
+  <Project>https://github.com/Zilcho-Labs/zilcho-subs</Project>
+  <Overview>Local AI subtitle and song-lyric creation and translation, on your own server. Models and translation packs download only when requested. Processes final imported media; preserves videos and existing subtitles. CPU-first. Initial automatic watching is off. Review README before enabling it.</Overview>
+  <Category>MediaApp:Video</Category><WebUI>http://[IP]:[PORT:8765]/</WebUI>
+  <TemplateURL></TemplateURL><ExtraParams>--init --cpus=2 --memory=6g --security-opt=no-new-privileges</ExtraParams>
+  <Config Name="Web UI Port" Target="8765" Default="8765" Mode="tcp" Description="Choose an unused host port" Type="Port" Display="always" Required="true" Mask="false">8765</Config>
+  <Config Name="Media Library" Target="/media" Default="" Mode="rw" Description="Your final imported movies/TV/anime library. Subtitles are written beside videos. Example: /mnt/user/data/media" Type="Path" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="App Data" Target="/config" Default="/mnt/user/appdata/zilcho-subs" Mode="rw" Description="Persistent settings, SQLite queue, models and transcript cache" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/zilcho-subs</Config>
+  <Config Name="Downloads (optional)" Target="/downloads" Default="" Mode="ro" Description="Optional downloads mapping; v0.1 processes final imports under /media, not active downloads" Type="Path" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Web UI Password" Target="ZILCHO_PASSWORD" Default="" Mode="" Description="Set a unique password, at least 12 characters. Do not expose the UI directly to the internet." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="User ID" Target="PUID" Default="99" Mode="" Description="Owner UID for app data and new subtitle files" Type="Variable" Display="always" Required="true" Mask="false">99</Config>
+  <Config Name="Group ID" Target="PGID" Default="100" Mode="" Description="Group GID; match your media permissions" Type="Variable" Display="always" Required="true" Mask="false">100</Config>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Timezone used by the processing schedule" Type="Variable" Display="always" Required="true" Mask="false">UTC</Config>
+  <Config Name="File creation mask" Target="UMASK" Default="002" Mode="" Description="Permissions for newly generated files; existing media permissions are never changed" Type="Variable" Display="advanced" Required="true" Mask="false">002</Config>
+</Container>

@@ -1,0 +1,165 @@
+[
+  {
+    "package": "ctranslate2",
+    "version": "4.9.0",
+    "repository": "OpenNMT/CTranslate2",
+    "tag": "v4.9.0",
+    "commit": "a22ba1c63ee35d1a0d25db149aa2a66d36a6a732",
+    "tree": "a22ba1c63ee35d1a0d25db149aa2a66d36a6a732",
+    "tree_truncated": false,
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/OpenNMT/CTranslate2/a22ba1c63ee35d1a0d25db149aa2a66d36a6a732/LICENSE",
+        "sha256": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb"
+      }
+    ],
+    "notice_paths": [],
+    "scope": "Upstream tree notice snapshot, not clearance of compiled/native dependencies.",
+    "searched_filename_terms": [
+      "license",
+      "licence",
+      "notice",
+      "copying",
+      "copyright"
+    ],
+    "git_submodules": [
+      {
+        "path": "third_party/cpu_features",
+        "commit": "8a494eb1e158ec2050e5f699a504fbc9b896a43b"
+      },
+      {
+        "path": "third_party/cutlass",
+        "commit": "bbe579a9e3beb6ea6626d9227ec32d0dae119a49"
+      },
+      {
+        "path": "third_party/cxxopts",
+        "commit": "44380e5a44706ab7347f400698c703eb2a196202"
+      },
+      {
+        "path": "third_party/googletest",
+        "commit": "f8d7d77c06936315286eb55f8de22cd23c188571"
+      },
+      {
+        "path": "third_party/ruy",
+        "commit": "363f252289fb7a1fba1703d99196524698cb884d"
+      },
+      {
+        "path": "third_party/spdlog",
+        "commit": "76fb40d95455f249bd70824ecfcae7a8f0930fa3"
+      },
+      {
+        "path": "third_party/thrust",
+        "commit": "b5fe509fd11a925f90d6495176707cc1184eed9d"
+      }
+    ]
+  },
+  {
+    "package": "flatbuffers",
+    "version": "25.12.19",
+    "repository": "google/flatbuffers",
+    "tag": "v25.12.19",
+    "commit": "7e163021e59cca4f8e1e35a7c828b5c6b7915953",
+    "tree": "7e163021e59cca4f8e1e35a7c828b5c6b7915953",
+    "tree_truncated": false,
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/google/flatbuffers/7e163021e59cca4f8e1e35a7c828b5c6b7915953/LICENSE",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      {
+        "path": "dart/LICENSE",
+        "url": "https://raw.githubusercontent.com/google/flatbuffers/7e163021e59cca4f8e1e35a7c828b5c6b7915953/dart/LICENSE",
+        "sha256": "edd9b3459bee4c79b549a5ef66d06d12bd144ddb8d08e0b448fb421267f43dd5"
+      },
+      {
+        "path": "swift/LICENSE",
+        "url": "https://raw.githubusercontent.com/google/flatbuffers/7e163021e59cca4f8e1e35a7c828b5c6b7915953/swift/LICENSE",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    ],
+    "notice_paths": [],
+    "scope": "Upstream tree notice snapshot, not clearance of compiled/native dependencies.",
+    "searched_filename_terms": [
+      "license",
+      "licence",
+      "notice",
+      "copying",
+      "copyright"
+    ],
+    "git_submodules": []
+  },
+  {
+    "package": "sentencepiece",
+    "version": "0.2.3",
+    "repository": "google/sentencepiece",
+    "tag": "v0.2.3",
+    "commit": "eafd99cf3b8bfa5101c2c5f42aab2cc39947938d",
+    "tree": "eafd99cf3b8bfa5101c2c5f42aab2cc39947938d",
+    "tree_truncated": false,
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/google/sentencepiece/eafd99cf3b8bfa5101c2c5f42aab2cc39947938d/LICENSE",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      {
+        "path": "third_party/darts_clone/LICENSE",
+        "url": "https://raw.githubusercontent.com/google/sentencepiece/eafd99cf3b8bfa5101c2c5f42aab2cc39947938d/third_party/darts_clone/LICENSE",
+        "sha256": "155f59997298ee336602c49f9c1110f268ac394ca2197eb02647a3555935ad52"
+      },
+      {
+        "path": "third_party/libsais/LICENSE",
+        "url": "https://raw.githubusercontent.com/google/sentencepiece/eafd99cf3b8bfa5101c2c5f42aab2cc39947938d/third_party/libsais/LICENSE",
+        "sha256": "e38f5960984c2350dba530a89395789c0ea6039a1b551511b478b94dec1d5dfa"
+      }
+    ],
+    "notice_paths": [],
+    "scope": "Upstream tree notice snapshot, not clearance of compiled/native dependencies.",
+    "searched_filename_terms": [
+      "license",
+      "licence",
+      "notice",
+      "copying",
+      "copyright"
+    ],
+    "git_submodules": []
+  },
+  {
+    "package": "tokenizers",
+    "version": "0.23.3",
+    "repository": "huggingface/tokenizers",
+    "tag": "v0.23.3",
+    "commit": "301277072263fb3830eb66eec7e47adadf76f1dc",
+    "tree": "301277072263fb3830eb66eec7e47adadf76f1dc",
+    "tree_truncated": false,
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/huggingface/tokenizers/301277072263fb3830eb66eec7e47adadf76f1dc/LICENSE",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+      },
+      {
+        "path": "bindings/node/LICENSE",
+        "url": "https://raw.githubusercontent.com/huggingface/tokenizers/301277072263fb3830eb66eec7e47adadf76f1dc/bindings/node/LICENSE",
+        "sha256": "02965ed67e29f871a53f7a7afa593a0ddc8020f86ccce0faaf1aa59215b5269e"
+      },
+      {
+        "path": "tokenizers/LICENSE",
+        "url": "https://raw.githubusercontent.com/huggingface/tokenizers/301277072263fb3830eb66eec7e47adadf76f1dc/tokenizers/LICENSE",
+        "sha256": "1e881ecf2862d01e6e5bc2b861e46886d2a6fb01499c0c508a209a7271b13cf2"
+      }
+    ],
+    "notice_paths": [],
+    "scope": "Upstream tree notice snapshot, not clearance of compiled/native dependencies.",
+    "searched_filename_terms": [
+      "license",
+      "licence",
+      "notice",
+      "copying",
+      "copyright"
+    ],
+    "git_submodules": []
+  }
+]

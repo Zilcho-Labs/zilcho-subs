@@ -1,0 +1,36 @@
+{
+  "ffmpeg": {
+    "version": "8.1.3",
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz",
+    "sha256": "7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3"
+  },
+  "ffmpeg_signature": {
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz.asc",
+    "sha256": "5f2880c7fea01f8694d30cb9d06362f77241ee67ce5926b157a226b18f08a538"
+  },
+  "ffmpeg_key": {
+    "url": "https://ffmpeg.org/ffmpeg-devel.asc",
+    "sha256": "397b3becedcd5a98769967ff1ff8501ddc89f8368b8f766e4701377d7dbaabe5",
+    "fingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8"
+  },
+  "ctranslate2": {
+    "version": "4.9.0",
+    "repository": "https://github.com/OpenNMT/CTranslate2.git",
+    "commit": "a22ba1c63ee35d1a0d25db149aa2a66d36a6a732",
+    "submodules": [
+      "third_party/spdlog",
+      "third_party/cpu_features",
+      "third_party/ruy"
+    ]
+  },
+  "pyav": {
+    "version": "18.1.0",
+    "url": "https://files.pythonhosted.org/packages/8d/f4/f22114d30d3435e38c6af2b4870f37b864403dca6ae7af747a289ce0a18e/av-18.1.0.tar.gz",
+    "sha256": "47bfc286e1bc9de7ab4681fc2b575cd2460a66919d31ffe1bd5aa54fae531a28"
+  },
+  "numpy": {
+    "version": "2.4.6",
+    "url": "https://files.pythonhosted.org/packages/d0/ad/fed0499ce6a338d2a03ebae59cd15093910c8875328855781952abf6c2fe/numpy-2.4.6.tar.gz",
+    "sha256": "f3a3570c4a2a16746ac2c31a7c7c7b0c186b95ce902e33db6f28094ed7387dda"
+  }
+}

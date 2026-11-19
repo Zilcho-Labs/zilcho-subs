@@ -1,0 +1,40 @@
+{
+  "source": "Owner-provided Copilot design images, copied unchanged from the main folder",
+  "files": [
+    {
+      "file": "Git or Website Banner.png",
+      "sha256": "2efc6628eb79e99103e5fd023b8547c7afce4c2444696c66e1e44a5bd6a83701",
+      "bytes": 2173479
+    },
+    {
+      "file": "Google Play.png",
+      "sha256": "d6ae622d60c67c238982a0bedce42d51a99ce84ab076b70c60f6efbbc94b1745",
+      "bytes": 1034146
+    },
+    {
+      "file": "Install Icon and Full Branding.png",
+      "sha256": "bbe2162bdf8fb5f40a6a89c3c70bb223735ee1b9afe8f2b18915119e71063714",
+      "bytes": 1739990
+    },
+    {
+      "file": "Install Icon maybe.png",
+      "sha256": "88f217258a9448ec69ada80a3d510f95cd9107962019c3322441f1733eac6f5f",
+      "bytes": 1402247
+    },
+    {
+      "file": "Installer Icon.png",
+      "sha256": "bca3bdf3214ba6520b7c7b061c5dc66bb11875c6c124a217ba1075a4660af468",
+      "bytes": 2258256
+    },
+    {
+      "file": "Master Logo.png",
+      "sha256": "e8097374fcd7f86b0bc7c57accf3b6e25e7ae74fc6c03d2c8a423cac35ed0fc1",
+      "bytes": 1584209
+    },
+    {
+      "file": "Splash.png",
+      "sha256": "a5bbb4f1b8c5df8412340f8859bc32a56c31bfe9569c24192d1dd70468f64bfe",
+      "bytes": 2286459
+    }
+  ]
+}

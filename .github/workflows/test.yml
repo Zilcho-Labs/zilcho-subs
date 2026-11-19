@@ -1,0 +1,153 @@
+name: Tests
+on: [push]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install '.[test]'
+      - run: pytest -q
+      - run: node --check zilcho_subs/static/app.js
+  container-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: zilcho-subs:check
+          cache-from: type=gha,scope=zilcho-native
+          cache-to: type=gha,mode=max,scope=zilcho-native
+      - name: Container starts as configured UID and serves the authenticated app
+        run: |
+          mkdir -p /tmp/subs-media
+          sudo chown 99:100 /tmp/subs-media
+          docker run -d --name subs-check --cpus=2 --memory=6g --read-only --tmpfs /tmp:size=256m --security-opt=no-new-privileges --cap-drop=ALL --cap-add=CHOWN --cap-add=SETUID --cap-add=SETGID -e ZILCHO_PASSWORD=ci-only-synthetic-password -p 127.0.0.1:8765:8765 -v /tmp/subs-media:/media:rw -v subs-check-config:/config zilcho-subs:check
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/api/health; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8765/api/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/state)" = 401
+          docker exec subs-check sh -c 'test "$(stat -c %u /config/queue.sqlite3)" = 99'
+          docker exec --user 99:100 subs-check python -c "import faster_whisper, zilcho_subs.local_packs"
+          docker stop subs-check
+      - name: Real engines work with network disconnected
+        run: |
+          docker start subs-check
+          docker exec -i --user 99:100 subs-check sh -c 'cat > /tmp/container_smoke.py' < tools/container_smoke.py
+          docker exec --user 99:100 subs-check python /tmp/container_smoke.py prepare
+          docker network disconnect bridge subs-check
+          docker exec --user 99:100 subs-check python /tmp/container_smoke.py process
+          docker exec -i --user 99:100 subs-check sh -c 'cat > /tmp/capture_native.py' < tools/capture_native.py
+          docker exec --user 99:100 subs-check python /tmp/capture_native.py /tmp/native-linkage.json
+          docker exec --user 99:100 subs-check cat /tmp/native-linkage.json > /tmp/native-linkage.json
+          docker stop subs-check
+      - name: Capture installed license evidence
+        run: |
+          docker cp subs-check:/usr/share/zilcho-subs /tmp/subs-notices
+          cp /tmp/native-linkage.json /tmp/subs-notices/native-linkage.json
+          python -c "import json,pathlib; p=pathlib.Path('/tmp/subs-notices/dependencies'); data=json.loads((p/'inventory.json').read_text()); assert data['python'] and data['debian']; assert (p/'ffmpeg-L.txt').is_file(); assert (p/'python'/'faster-whisper').is_dir()"
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: zilcho-subs:check
+          syft-version: v1.57.1
+          format: spdx-json
+          output-file: /tmp/subs-notices/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Export controlled native build sources
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: native-sources
+          outputs: type=local,dest=/tmp/subs-notices/sources/native
+          cache-from: type=gha,scope=zilcho-native
+      - name: Bind evidence to this image and commit
+        run: python tools/bind_evidence.py /tmp/subs-notices zilcho-subs:check "$GITHUB_SHA"
+      # GitHub Free allows ~500 MB of artifact storage for private repos, and one paired
+      # candidate is ~1 GB, so release candidates are built locally instead
+      # (tools/local_release.ps1). CI still builds and checks the container on every push.
+      # Set the repository variable CI_RELEASE_UPLOADS=true to upload candidates from CI
+      # again (e.g. on a plan with more storage).
+      - uses: actions/upload-artifact@v4
+        if: contains(github.event.head_commit.message, '[release-candidate]')
+        with:
+          name: installed-license-evidence
+          retention-days: 3
+          path: /tmp/subs-notices
+      - name: Prepare paired private release candidate
+        id: candidate
+        if: contains(github.event.head_commit.message, '[release-candidate]') && vars.CI_RELEASE_UPLOADS == 'true'
+        # If an upstream source can't be downloaded (e.g. a project's GitHub repo is
+        # temporarily unavailable), fall back to a private test image below instead
+        # of losing the build. Distribution still requires the paired candidate.
+        continue-on-error: true
+        run: python tools/prepare_release.py --evidence /tmp/subs-notices --destination /tmp/zilcho-release --image zilcho-subs:check --commit "$GITHUB_SHA" --version "$(python -c 'import zilcho_subs;print(zilcho_subs.__version__)')-rc.${{ github.run_id }}"
+      - name: Preserve candidate image and matching sources
+        if: contains(github.event.head_commit.message, '[release-candidate]') && steps.candidate.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            /tmp/zilcho-release/zilcho-subs-image.tar.gz
+            /tmp/zilcho-release/source-materials.tar.gz
+            /tmp/zilcho-release/build-evidence.tar.gz
+            /tmp/zilcho-release/release-manifest.json
+            /tmp/zilcho-release/SOURCE-DELIVERY.md
+            /tmp/zilcho-release/SHA256SUMS
+      - name: Save private test image (paired sources unavailable)
+        if: contains(github.event.head_commit.message, '[release-candidate]') && steps.candidate.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          version="$(python -c 'import zilcho_subs;print(zilcho_subs.__version__)')-rc.${{ github.run_id }}-private"
+          out=/tmp/zilcho-private; mkdir -p "$out"
+          # The same image that passed the startup, sign-in and offline-engine checks above.
+          docker tag zilcho-subs:check "zilcho-subs:$version"
+          docker tag zilcho-subs:check zilcho-subs:local
+          id="$(docker image inspect --format '{{.Id}}' zilcho-subs:check)"
+          docker save "zilcho-subs:$version" zilcho-subs:local | gzip -1 > "$out/zilcho-subs-image.tar.gz"
+          docker image rm "zilcho-subs:$version" zilcho-subs:local
+          docker load -i "$out/zilcho-subs-image.tar.gz"
+          test "$(docker image inspect --format '{{.Id}}' "zilcho-subs:$version")" = "$id"
+          printf '%s\n' \
+            "# PRIVATE TEST BUILD: $version" \
+            "" \
+            "Not for distribution. Collecting the exact upstream source code for this build failed" \
+            "(see the run log), so no matching source package was made. Install it only on your own" \
+            "server for testing. Anything shared with other people needs a normal paired candidate." \
+            "" \
+            "Source commit: $GITHUB_SHA" \
+            "Image ID: $id (restore verified)" \
+            "" \
+            "Install: check SHA256SUMS, then docker load -i zilcho-subs-image.tar.gz." \
+            "The archive includes zilcho-subs:local for the Unraid template." > "$out/PRIVATE-TEST-ONLY.md"
+          (cd "$out" && sha256sum zilcho-subs-image.tar.gz PRIVATE-TEST-ONLY.md > SHA256SUMS)
+          echo "::warning::Paired release candidate failed; saved a PRIVATE test image only ($version). Not for distribution."
+      - name: Preserve private test image
+        if: contains(github.event.head_commit.message, '[release-candidate]') && steps.candidate.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-test-image
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            /tmp/zilcho-private/zilcho-subs-image.tar.gz
+            /tmp/zilcho-private/PRIVATE-TEST-ONLY.md
+            /tmp/zilcho-private/SHA256SUMS
+      - name: Diagnostics on failure
+        if: failure()
+        run: docker logs subs-check || true

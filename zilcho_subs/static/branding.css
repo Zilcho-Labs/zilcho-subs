@@ -1,0 +1,66 @@
+/* Zilcho Subs: Copilot-inspired ocean blue, cyan and violet identity. */
+:root {
+  --bg: #071121;
+  --panel: #0c1b30;
+  --line: #263b55;
+  --muted: #a9b9d0;
+  --accent: #80dfff;
+  --text: #f2f6ff;
+}
+body { min-height: 100vh; display: flow-root; background: radial-gradient(ellipse at 95% 0%, #14264b 0, transparent 45%), var(--bg); background-attachment: fixed; background-repeat: no-repeat; }
+button { background: #1b304b; }
+button.primary { background: linear-gradient(110deg, #165da6, #6841c3); color: #fff; border: 1px solid #7378ec; }
+button.secondary, .download-link { background: #1b304b; color: #dceaff; }
+button.quiet { background: transparent; color: #bbcae1; }
+input, select, textarea { background: #081526; border-color: #355071; }
+input[type=checkbox], progress { accent-color: #80dfff; }
+aside { background: #091629; border-color: #233650; }
+.brand { font-size: 21px; white-space: nowrap; }
+.brand b { font-weight: 650; color: #80dfff; }
+.brand-mark { width: 44px; height: 44px; flex-shrink: 0; background: none; border-radius: 12px; }
+nav button { background: transparent; color: #afbdd3; }
+nav button.active { background: linear-gradient(100deg, #16476880, #4a2c6b70); color: #edf8ff; box-shadow: inset 3px 0 #63d6ff; }
+.hero { background: radial-gradient(ellipse at 95% 80%, #46267a60, transparent 65%), linear-gradient(120deg, #102a47, #0b1932); border-color: #2d5483; }
+.hero .eyebrow { color: #8bdbff; }
+.hero p:not(.eyebrow) { color: #c1d2e9; }
+.hero-art { background: radial-gradient(ellipse, #1576b52e, transparent 70%); }
+.brand-orbit { width: 100%; display: grid; justify-items: center; gap: 24px; padding: 12px; }
+.brand-orbit > img { width: 144px; height: 144px; filter: drop-shadow(0 12px 22px #020a1d); }
+.brand-flow { display: flex; align-items: center; gap: 24px; font-size: 11px; color: #c1ddf8; }
+.brand-flow span { position: relative; padding: 6px 10px; border: 1px solid #426298; border-radius: 7px; background: #10203c; }
+.brand-flow span + span::before { content: '\2192'; left: -18px; position: absolute; color: #76dfff; }
+.pill { border-color: #40577b; color: #c8d8ed; }
+.pill.running { color: #b3eaff; border-color: #407dab; }
+.notice { background: #10243c; border-color: #345579; color: #c3d7ee; }
+.folder-name { color: #b0dfff; }
+footer { color: #a9b9d0; }
+.login { max-width: 980px; margin: 9vh auto; padding: 32px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 64px; }
+.login-art { text-align: center; }
+.login-art img { display: block; width: 100%; height: auto; max-width: 360px; margin: auto; border-radius: 24px; box-shadow: 0 20px 60px #030b1e; }
+.login-art p { margin-top: 20px; color: #aedbff; font-size: 14px; letter-spacing: .6px; }
+.login .eyebrow { margin-top: 0; color: #80dfff; }
+.login h1 { font-size: clamp(32px, 4vw, 46px); }
+.login-content { min-width: 0; }
+.about-brand { display: flex; align-items: center; gap: 24px; margin-bottom: 26px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.about-brand img { width: 116px; height: 116px; border-radius: 16px; object-fit: contain; }
+.about-brand p { margin-top: 8px; }
+.job-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.job-tools:empty { display: none; }
+.job-pick { width: 20px; height: 20px; margin: 2px 12px 0 0; flex-shrink: 0; cursor: pointer; }
+.job-head:has(.job-pick) { justify-content: flex-start; }
+.job-head:has(.job-pick) > .pill { margin-left: auto; }
+.job.picked { border-color: #63d6ff; box-shadow: 0 0 0 1px #63d6ff55; }
+.about-site { margin-top: 10px; font-size: 14px; }
+.about-site a { color: #80dfff; }
+#toast { background: #15314d; border-color: #5a97c4; color: #eff8ff; }
+@media (max-width: 850px) {
+  .login { max-width: 480px; margin: 24px auto; padding: 24px; grid-template-columns: 1fr; gap: 26px; }
+  .login-art img { width: 160px; border-radius: 16px; }
+  .login-art p { margin-top: 12px; font-size: 12px; }
+  .login h1 { font-size: 36px; }
+}
+@media (max-width: 480px) {
+  .about-brand { align-items: flex-start; gap: 16px; }
+  .about-brand img { width: 72px; height: 72px; border-radius: 10px; }
+  .about-brand h2 { font-size: 20px; }
+}
