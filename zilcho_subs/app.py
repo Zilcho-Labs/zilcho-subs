@@ -15,6 +15,7 @@ from . import __version__
 from .core import ALIASES, AUDIO, Store, Settings, MODELS, LANGUAGES, VIDEO, media_path, safe_relative, validate_srt, write_sidecar
 from .pipeline import model_ready, installed_packs
 from .sounds import sound_model_ready
+from .denoise import model_ready as cleanup_model_ready
 from .runner import Runner
 
 class QueueMove(BaseModel): direction: str = Field(pattern="^(up|down|top|bottom)$")
@@ -124,6 +125,7 @@ def create_app(config=None,media=None,password=None,run_workers=True):
         return {'version':__version__,'settings':store.settings().model_dump(),'jobs':store.jobs(),'archived_count':store.archived_count(),
             'models':[{'name':m,'installed':model_ready(store.config,m)} for m in MODELS],
             'sound_model':sound_model_ready(store.config),
+            'cleanup_model':cleanup_model_ready(store.config),
             'packs':installed_packs(store.config),'catalog':json.loads(catalog.read_text(encoding='utf-8')) if catalog.exists() else [],
             'languages':LANGUAGES,'media_root':str(root),'media_available':root.is_dir(),'config_root':str(store.config),
             'ffmpeg':bool(shutil.which('ffmpeg') and shutil.which('ffprobe'))}
@@ -267,7 +269,7 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     @app.post('/api/assets')
     def assets(data:Asset):
         import re
-        if data.kind not in ('model','remove_model','sound_model','remove_sound_model','catalog','pack','remove_pack'): raise ValueError('Unknown asset action')
+        if data.kind not in ('model','remove_model','sound_model','remove_sound_model','cleanup_model','remove_cleanup_model','catalog','pack','remove_pack'): raise ValueError('Unknown asset action')
         if data.model not in MODELS: raise ValueError('Invalid model')
         if data.kind in ('pack','remove_pack'):
             if any(not re.fullmatch(r'[a-z]{2,3}(?:_[A-Z]{2})?',x) for x in (data.source,data.target)): raise ValueError('Choose a valid language pair')

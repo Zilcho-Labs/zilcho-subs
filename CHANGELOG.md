@@ -4,6 +4,20 @@ What changed in each version of Zilcho Subs, newest first. The version shown in
 the app's footer comes from `zilcho_subs/__init__.py`. How and when to raise it
 is in [VERSIONING.md](VERSIONING.md).
 
+## 0.6.0 (November 19, 2026)
+
+- New: **Dialogue cleanup** for video subtitles. With it turned on in Settings,
+  Zilcho Subs removes background noise such as crowds, chanting, music and effects
+  before listening, so lines buried in loud scenes are picked up. In a test on a
+  loud anime scene it found 11 subtitles where there were 5, including a line the
+  normal pass missed completely. Download **Dialogue cleanup** (8 MB) in Speech
+  models first. It adds about a minute per episode on the CPU.
+- It uses DeepFilterNet3 (MIT or Apache-2.0) on ONNX Runtime, already part of the
+  app, so the image doesn't grow. It's for speech only, so song lyrics never use it
+  (it would remove the singing too). Sound captions still listen to the original audio.
+- Cleaned and uncleaned transcripts are cached separately, so switching it on or
+  off never mixes them up, and your existing cached transcripts stay valid.
+
 ## 0.5.2 (November 18, 2026)
 
 - Song lyrics follow the song's phrases. Lines used to be cut every 40 or so

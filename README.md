@@ -11,6 +11,7 @@ Made by [Zilcho Labs](https://zilcholabs.com). Zilcho Subs is an independent pro
 - **Subtitles from speech.** Listens to a video's audio with a local Whisper model (via faster-whisper) and writes a selectable `.srt` track. Each line is timed from the words actually heard, and stays on screen long enough to read.
 - **Translation.** English output can come straight from the speech model. Other languages use local, offline Argos-format translation packs. Japanese, Korean and Chinese audio were the first focus. Other languages depend on the speech model and the packs you install.
 - **Translate existing subtitles.** Upload or pick an `.srt` file and translate it. No speech model is needed, and the original timing is kept exactly.
+- **Dialogue cleanup (optional).** Removes background noise such as crowds, chanting, music and effects before listening, so lines buried in loud scenes are picked up. Uses DeepFilterNet3, an 8 MB download, and adds about a minute per episode. Videos only.
 - **Sound captions (optional).** Adds captions such as `[Dog barking]` to English subtitles using a small local sound classifier.
 - **Song lyrics.** Makes `.lrc` lyric files for music, line by line and optionally word by word for karaoke-style players. Lines follow the song's phrases.
 - **A queue that's easy to manage.** Pause, reorder, retry and "run next"; an interrupted video resumes from its last finished part. You can also set processing hours and watch library folders automatically.
@@ -64,7 +65,7 @@ App data (`/config`) holds settings, the job queue, models, translation packs, l
 
 ## Good to know
 
-- Speech recognition makes mistakes, especially with music, overlapping voices, names and short lines. Check important subtitles before relying on them.
+- Speech recognition makes mistakes, especially with music, overlapping voices, names and short lines. **Dialogue cleanup** in Settings helps with lines buried under crowds or music. Check important subtitles before relying on them.
 - Processing runs on the CPU. A full episode with the medium model can take a while on modest hardware. Larger models are more accurate but slower.
 - Only one job runs at a time. Pausing waits for the current part of the audio to finish.
 - Subtitle input for translation is UTF-8 `.srt` up to 2 MB. Image-based subtitles, ASS styling and OCR of on-screen text aren't supported.

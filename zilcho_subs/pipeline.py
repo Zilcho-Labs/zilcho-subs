@@ -69,12 +69,20 @@ def existing_languages(media, info):
     return result
 
 
-def extract(media, stream, destination, duration):
+def extract(media, stream, destination, duration, rate=16000):
     try:
-        subprocess.run(["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-i",str(media),"-map",f"0:{stream}","-vn","-af","asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0","-ac","1","-ar","16000","-c:a","pcm_s16le",str(destination)],
+        subprocess.run(["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-i",str(media),"-map",f"0:{stream}","-vn","-af","asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0","-ac","1","-ar",str(rate),"-c:a","pcm_s16le",str(destination)],
             stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=min(7200,max(300,duration*2)),check=True)
     except FileNotFoundError as e: raise RuntimeError("FFmpeg is not installed") from e
     except subprocess.SubprocessError as e: raise RuntimeError("Audio extraction failed or timed out") from e
+
+
+def resample(source, destination, rate):
+    try:
+        subprocess.run(["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-i",str(source),"-ac","1","-ar",str(rate),"-c:a","pcm_s16le",str(destination)],
+            stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=3600,check=True)
+    except FileNotFoundError as e: raise RuntimeError("FFmpeg is not installed") from e
+    except subprocess.SubprocessError as e: raise RuntimeError("Audio resampling failed or timed out") from e
 
 
 def model_ready(config, name):
@@ -116,6 +124,12 @@ class LocalEngine:
         from .lyrics import recognize_lyrics
         model=WhisperModel(str(self.config/"models"/settings.model),device="cpu",compute_type="int8",cpu_threads=settings.cpu_threads,num_workers=1,local_files_only=True)
         return recognize_lyrics(model,decode_audio(str(audio),sampling_rate=16000),language,progress)
+    def clean(self,audio48,destination,settings,progress):
+        """Dialogue cleanup (DeepFilterNet3) on 48 kHz audio, written as 16 kHz for speech recognition."""
+        from .denoise import DialogueCleanup, clean_file
+        cleaned=Path(destination).with_name("cleaned-48k.wav")
+        clean_file(audio48,cleaned,DialogueCleanup(self.config,threads=settings.cpu_threads),progress)
+        resample(cleaned,destination,16000)
     def sounds(self,audio,settings,progress):
         from faster_whisper.audio import decode_audio
         from .sounds import SoundTagger, detect_sounds
@@ -177,7 +191,16 @@ def process_subtitle(store, job, media_root, engine=None, probe_fn=probe, extrac
     task="translate" if settings.direct_english and targets==["en"] else "transcribe"
     marker=store.config/"models"/settings.model/"ready.json"
     from .timing import TIMING_VERSION
-    key=hashlib.sha256(json.dumps([TIMING_VERSION,str(media),fingerprint,stream["index"],settings.model,marker.read_text() if marker.exists() else "",task,settings.source_language]).encode()).hexdigest()
+    clean=settings.clean_dialogue
+    if clean and isinstance(engine,LocalEngine):
+        from .denoise import model_ready as cleanup_ready
+        if not cleanup_ready(store.config): raise ValueError("Download Dialogue cleanup in Speech models, or turn it off in Settings")
+    parts=[TIMING_VERSION,str(media),fingerprint,stream["index"],settings.model,marker.read_text() if marker.exists() else "",task,settings.source_language]
+    if clean:
+        # Only cleaned transcripts get a new key, so existing cached transcripts stay valid.
+        from .denoise import CLEANUP_VERSION
+        parts.append(CLEANUP_VERSION)
+    key=hashlib.sha256(json.dumps(parts).encode()).hexdigest()
     cache=store.config/"transcripts"/(key+".json")
     if isinstance(engine,LocalEngine):
         from .timing import SpeechCheckpoint
@@ -200,9 +223,14 @@ def process_subtitle(store, job, media_root, engine=None, probe_fn=probe, extrac
         if cache.exists():
             result=json.loads(cache.read_text(encoding="utf-8")); progress("Reusing cached transcript",speech_end)
         else:
-            extracted()
+            speech_audio=extracted()
+            if clean:
+                # Sound captions still listen to the original audio; cleanup removes background sounds.
+                audio48=Path(work)/"audio-48k.wav"; extract_fn(media,stream["index"],audio48,info["duration"],rate=48000)
+                speech_audio=Path(work)/"speech.wav"
+                engine.clean(audio48,speech_audio,settings,lambda done:progress("Cleaning up background noise",6+4*done))
             progress("Recognizing and translating speech" if task=="translate" else "Recognizing original speech",10)
-            result=engine.speech(audio,settings,task,lambda end:progress("Recognizing speech",10+(speech_end-10)*min(1,end/info["duration"])))
+            result=engine.speech(speech_audio,settings,task,lambda end:progress("Recognizing speech",10+(speech_end-10)*min(1,end/info["duration"])))
             # Cache only a completed speech pass, never partial results from a cancelled worker.
             temp=cache.with_suffix(".tmp"); temp.write_text(json.dumps(result,ensure_ascii=False),encoding="utf-8"); temp.replace(cache)
         if want_sounds and events is None:
@@ -296,6 +324,16 @@ def process_asset(store, job):
         if not sound_model_ready(store.config):
             with tempfile.TemporaryDirectory(prefix=job["id"]+"-",dir=store.config/"work") as work:
                 download_sound_model(store.config,work)
+    elif kind=="cleanup_model":
+        from .denoise import download_model as download_cleanup, model_ready as cleanup_ready
+        if not cleanup_ready(store.config):
+            with tempfile.TemporaryDirectory(prefix=job["id"]+"-",dir=store.config/"work") as work:
+                download_cleanup(store.config,work)
+    elif kind=="remove_cleanup_model":
+        from .denoise import model_dir as cleanup_dir
+        path=cleanup_dir(store.config)
+        if path.is_symlink(): raise ValueError("Unexpected symlink")
+        if path.exists(): shutil.rmtree(path)
     elif kind=="remove_sound_model":
         from .sounds import sound_model_dir
         path=sound_model_dir(store.config)

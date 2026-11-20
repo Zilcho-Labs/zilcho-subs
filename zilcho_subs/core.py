@@ -37,6 +37,7 @@ class Settings(BaseModel):
     direct_english: bool = True
     prefer_existing: bool = True
     sound_captions: bool = False
+    clean_dialogue: bool = False  # DeepFilterNet3 before speech recognition (videos only)
     lyrics_language: str = "auto"
     lyrics_words: bool = True
     lyrics_lrc_words: bool = False  # word timing inside Song.lrc (Jellyfin reads only Song.lrc)
