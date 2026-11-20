@@ -4,6 +4,125 @@ What changed in each version of Zilcho Subs, newest first. The version shown in
 the app's footer comes from `zilcho_subs/__init__.py`. How and when to raise it
 is in [VERSIONING.md](VERSIONING.md).
 
+## 0.12.0 (November 20, 2026)
+
+- **Pick library folders by browsing.** In the Libraries panel on the Monitor
+  page, click **+ Add folder** and click through your media folders in a
+  popup. When you are inside the one you want, click **Add this folder**
+  (everything inside it is included). Click **+ Add another folder** to add
+  more, and the x on a folder to remove it. No more typing folder names.
+- **No duplicate "Library" in the dropdowns.** The library made for you on
+  upgrade (your whole main folder) is now called "Everything (main folder)" in
+  the Libraries panel and no longer appears in the Library dropdowns, because
+  "All libraries" already means the same. Delete it once your own libraries
+  are set up and "All libraries" shows just those.
+
+## 0.10.0 (November 20, 2026)
+
+- **Named libraries (behind the scenes).** The folders you watch are now
+  grouped into named libraries (Movies, TV, Music...), each with one or more
+  folders; one can be marked "whole folder" for your main media folder. Your
+  current folders become one library automatically. Files outside every
+  library no longer show up on any list, search, Monitor, Coverage or Quality
+  page, and those pages can look at one library with `?library=`. The
+  libraries screen itself comes next.
+- **Libraries screen and library picker.** On the Monitor page, make, rename
+  and delete libraries (a name plus its folders, or "use my whole main folder",
+  which warns that searching it scans the entire folder). Deleting a library
+  asks first and never deletes files. Media library, Song lyrics, Monitor,
+  Coverage and Subtitle quality each have a Library dropdown ("All libraries"
+  by default) that remembers your last choice. The old "Folders to watch" box
+  is replaced by this screen.
+- **New Subtitle quality page.** Every subtitle file a finished job wrote, with
+  its word count, segments (subtitle lines), how sure the speech model was
+  ("Confidence: 98.1%") and a rating: Excellent (95% and up), Good (90–95%),
+  Fair (85–90%) or Poor (under 85%). Filter by rating to find the files worth
+  checking first.
+- Confidence is recorded from now on while a job listens to speech; the
+  subtitles themselves come out exactly as before. Files made before 0.10.0
+  and translated SRT uploads show words and segments only ("not recorded").
+- Editing a subtitle updates its counts and keeps its confidence.
+- **New Coverage page.** See how much of your library has subtitles in each
+  language ("English Subs 97%", "Spanish Subs 64%"), lyrics, and enhanced
+  word-by-word lyrics, with a bar for each. One click on "Generate Missing
+  Spanish" (or Lyrics, or Enhanced Lyrics) queues a normal job for every file
+  that lacks it. Files already in the queue aren't added twice, and existing
+  subtitle and lyric files are never replaced.
+- **Emby and Plex links, next to Jellyfin.** On the Monitor page, under
+  Media servers (optional), you can now also connect Emby or Plex. When new
+  subtitles or lyrics are made, Zilcho Subs asks the server to look at just
+  that folder, so they show up straight away. Each one is off until you fill
+  it in, and the key or token never leaves Zilcho Subs.
+
+## 0.11.0 (November 20, 2026)
+
+- Release of the merged feature set: the list pages overhaul (0.9.0), the
+  subtitle quality and coverage pages (0.10.0), and named libraries
+  (0.10.0). Every page now defaults to "All libraries" and only shows the
+  files from the library you choose.
+- Test builds are named `0.11.0-rc.<GitHub run number>`.
+
+## 0.9.0 (November 20, 2026)
+
+- **See what each file has at a glance.** Media library rows show the
+  subtitle languages next to each video ("Subs: en, es") and which of your
+  languages are missing, or "Subs: missing". Song lyrics and Monitor library
+  rows show "Lyrics: yes" and "Enhanced: yes" (word-by-word lyrics, in
+  Song.words.lrc or inside Song.lrc), or "Lyrics: missing".
+- **Search as you type** on Media library, Song lyrics and Monitor library:
+  type `C` to see Cat, Core and Clip, `Co` to see just Core. Best matches come
+  first. Media library and Song lyrics search the folder you're in; Monitor
+  library searches the whole checked library.
+- **Filters:** show only videos missing a chosen subtitle language, or songs
+  missing lyrics (or word-by-word lyrics). **Sort** by name or by what's missing.
+- **Pages:** 20 results a page with page numbers, Next page and Last page. The
+  gear button next to the filter sets how many per page (0 = everything on one
+  page); each page remembers its own choice in this browser.
+- **Select and queue many files at once:** tick the files you want (or Select
+  page / Select all), then **Queue selected**. Media library and Song lyrics also
+  have **Queue all** for everything shown. These make the same jobs as the
+  per-file buttons, so nothing already there is replaced.
+- **Manage many queue jobs at once:** every job on the Queue page has a tick
+  box, including waiting and running ones. Select all, Select waiting &
+  running, Select finished and Clear selection sit above the list (all
+  always shown; greyed out when they would do nothing). Click "3 selected"
+  to list only the ticked jobs. Then **Cancel selected**, **Remove selected**
+  or **Archive selected**. A message
+  says how many changed ("3 jobs cancelled."). Cancelling more than one asks
+  first.
+- Alternating blue rows, a highlighted row for selected files, and a proper
+  **Up one folder** button. Folders with up to 5,000 items are listed (was 1,000).
+
+## 0.8.0 (November 19, 2026)
+
+- New: **optional Jellyfin link** on the Monitor library page. Enter your
+  Jellyfin address and an API key, and Zilcho Subs tells Jellyfin which folder
+  has new subtitles or lyrics as soon as a job finishes, so they show up without
+  waiting for Jellyfin's own scan. You can also have it ask Jellyfin to rescan
+  its libraries after a full check. Leave it empty if you don't use Jellyfin;
+  nothing is sent anywhere. **Test connection** checks the address and key, and
+  the key is never shown again after saving.
+- The status card in the sidebar now always shows how many items are missing,
+  how many jobs are waiting in the queue and when the library was last checked,
+  and warns if Jellyfin can't be reached. The browser tab shows a count of
+  finished results you haven't dismissed yet.
+
+## 0.7.0 (November 19, 2026)
+
+- New: **Monitor library**. A new page checks your media folder for videos
+  without subtitles and songs without lyrics, lists what it found, and queues the
+  missing ones with one click (**Make missing subtitles**, **Make missing
+  lyrics**) or automatically while watching is on. Songs are only done
+  automatically if you tick that option.
+- A status card in the sidebar shows what the monitor is doing ("Watching…",
+  "Paused", "3 items generated, 1 failed") on every page, and keeps the results
+  until you dismiss them.
+- It never changes, replaces or re-makes a file that's already there, waits for
+  new files to finish copying, and uses the normal queue, so still only one job
+  runs at a time. It now keeps checking while a long job runs.
+- Library watching, processing hours and "skip existing subtitles" moved from
+  Settings to the Monitor library page. New installs check every 60 seconds.
+
 ## 0.6.0 (November 19, 2026)
 
 - New: **Dialogue cleanup** for video subtitles. With it turned on in Settings,

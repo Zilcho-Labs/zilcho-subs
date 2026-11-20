@@ -268,6 +268,9 @@ def process_subtitle(store, job, media_root, engine=None, probe_fn=probe, extrac
         except FileExistsError: continue  # Another tool won the race; never overwrite it.
         outputs[target]=output.relative_to(Path(media_root).resolve()).as_posix()
         store.update(job["id"],outputs=outputs)
+        # Quality page numbers; translated languages share the speech confidence they came from.
+        from .quality import srt_counts
+        store.record_quality(job["id"],target,outputs[target],*srt_counts(text),result.get("confidence"))
     store.update(job["id"],status="completed" if outputs else "skipped",stage="Subtitles ready" if outputs else "Existing subtitles preserved",progress=100)
 
 

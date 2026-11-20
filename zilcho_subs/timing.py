@@ -177,6 +177,30 @@ def speech_cues(segments,start,end,task):
     return cues
 
 
+def confidence_totals(segments):
+    """Sum and count of how sure the model was, per word, for the segments kept as speech.
+
+    Uses faster-whisper's word probability when word timings exist. Translation has
+    none, so each word of such a segment counts the segment's average token
+    probability (exp of avg_logprob). Only records a number; output is unchanged.
+    """
+    total=0.0;count=0
+    for segment in segments:
+        text=(getattr(segment,'text','') or '').strip()
+        if not text or low_confidence(segment) or is_hallucination(text):continue
+        words=[w for w in (getattr(segment,'words',None) or []) if (w.word or '').strip() and getattr(w,'probability',None) is not None]
+        if words:
+            for word in words:
+                p=float(word.probability)
+                if math.isfinite(p):total+=min(1.0,max(0.0,p));count+=1
+            continue
+        logprob=getattr(segment,'avg_logprob',None)
+        if logprob is None:continue
+        p=math.exp(min(0.0,float(logprob)));n=len(text.split())
+        if math.isfinite(p):total+=p*n;count+=n
+    return total,count
+
+
 class SpeechCheckpoint:
     def __init__(self,path,key):self.path=Path(path);self.key=key
     def load(self):
@@ -207,8 +231,12 @@ def recognize_utterances(model,audio,settings,task,progress,get_intervals,checkp
     completed=int(saved['completed']) if saved else 0
     if not 0<=completed<=len(intervals):raise ValueError('Invalid speech checkpoint')
     result=list(saved['segments']) if saved else [];previous=intervals[completed-1]['end'] if completed else 0
+    # Running total for the Quality page; a checkpoint from before this was recorded has none.
+    sure=list(saved.get('confidence') or [0.0,0]) if saved else [0.0,0]
+    known=not saved or 'confidence' in saved
     def save(done):
-        if checkpoint:checkpoint.save({'completed':done,'segments':result,'language':language,'task':task,'samples':len(audio),'intervals':intervals})
+        if checkpoint:checkpoint.save({'completed':done,'segments':result,'language':language,'task':task,'samples':len(audio),'intervals':intervals,
+            **({'confidence':sure} if known else {})})
     save(completed)
     for index in range(completed,len(intervals)):
         interval=intervals[index]
@@ -218,7 +246,10 @@ def recognize_utterances(model,audio,settings,task,progress,get_intervals,checkp
         progress(a/SAMPLE_RATE)
         segments,_=model.transcribe(audio[a:b],language=language,task=actual_task,vad_filter=False,
             word_timestamps=actual_task=='transcribe',condition_on_previous_text=False,beam_size=5)
-        result.extend(speech_cues(list(segments),a/SAMPLE_RATE,b/SAMPLE_RATE,actual_task))
+        segments=list(segments)
+        result.extend(speech_cues(segments,a/SAMPLE_RATE,b/SAMPLE_RATE,actual_task))
+        total,count=confidence_totals(segments);sure=[sure[0]+total,sure[1]+count]
         previous=b;save(index+1);progress(b/SAMPLE_RATE)
     return {'language':language,'segments':result,'timing_strategy':TIMING_VERSION,
-        'alignment':'source words / speech-envelope translation','speech_interval_count':len(intervals)}
+        'alignment':'source words / speech-envelope translation','speech_interval_count':len(intervals),
+        'confidence':round(sure[0]/sure[1],4) if known and sure[1] else None}

@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path, PurePosixPath
 from contextlib import contextmanager
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 MODELS = ("tiny", "base", "small", "medium", "large-v3")
 LANGUAGES = {"auto":"Auto detect", "ja":"Japanese", "ko":"Korean", "zh":"Chinese", "en":"English", "es":"Spanish", "fr":"French", "de":"German", "it":"Italian", "pt":"Portuguese", "ru":"Russian", "ar":"Arabic", "hi":"Hindi", "vi":"Vietnamese", "th":"Thai", "id":"Indonesian", "nl":"Dutch", "pl":"Polish", "uk":"Ukrainian", "tr":"Turkish"}
@@ -21,19 +21,61 @@ ACTIVE = ("queued", "running", "cancelling", "pausing", "paused")
 class JobPaused(Exception):
     pass
 
+class Library(BaseModel):
+    """A named set of folders (Movies, TV, Music...). Folders are relative to the media folder."""
+    id: str = Field(default="", max_length=32)
+    name: str = Field(min_length=1, max_length=60)
+    folders: list[str] = Field(default_factory=lambda: [""], min_length=1, max_length=32)
+    # The user pointed this library at their main media folder. Big, so the UI warns
+    # and the coverage page keeps its file cap and caching.
+    whole_folder: bool = False
+
+    @field_validator("id")
+    @classmethod
+    def id_valid(cls, value):
+        if value and not re.fullmatch(r"[a-z0-9-]{1,32}", value): raise ValueError("Invalid library id")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def name_valid(cls, value):
+        value = " ".join(value.split())
+        if not value: raise ValueError("Give the library a name")
+        return value
+
+    @field_validator("folders")
+    @classmethod
+    def folders_valid(cls, values):
+        return list(dict.fromkeys(canonical_folder(v) for v in values))
+
+    @model_validator(mode="after")
+    def whole_if_root(self):
+        if "" in self.folders: self.whole_folder = True
+        return self
+
+def canonical_folder(value):
+    path = safe_relative(value, allow_empty=True).as_posix()
+    return "" if path == "." else path
+
+def _default_library(folders):
+    folders = list(dict.fromkeys(canonical_folder(f) for f in folders))
+    return [{"id": "default", "name": "Library", "folders": folders, "whole_folder": "" in folders}] if folders else []
+
 class Settings(BaseModel):
     model: str = "medium"
     source_language: str = "auto"
     target_languages: list[str] = Field(default_factory=lambda: ["en"], min_length=1, max_length=8)
     cpu_threads: int = Field(default=2, ge=1, le=32)
     watcher_enabled: bool = False
-    scan_dirs: list[str] = Field(default_factory=lambda: [""])
-    scan_interval: int = Field(default=120, ge=30, le=86400)
+    scan_dirs: list[str] = Field(default_factory=lambda: [""])  # every library's folders; kept in step with `libraries`
+    libraries: list[Library] = Field(default_factory=list, max_length=32)
+    scan_interval: int = Field(default=60, ge=30, le=86400)
     stable_seconds: int = Field(default=120, ge=30, le=86400)
     schedule_start: int = Field(default=0, ge=0, le=23)
     schedule_end: int = Field(default=0, ge=0, le=23)
     paused: bool = False
     skip_existing: bool = True
+    auto_lyrics: bool = False  # Monitor library also queues lyrics for songs without them
     direct_english: bool = True
     prefer_existing: bool = True
     sound_captions: bool = False
@@ -41,6 +83,36 @@ class Settings(BaseModel):
     lyrics_language: str = "auto"
     lyrics_words: bool = True
     lyrics_lrc_words: bool = False  # word timing inside Song.lrc (Jellyfin reads only Song.lrc)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_libraries(cls, data):
+        """Older settings only have scan_dirs: they become one default library. A caller
+        that changes scan_dirs without matching libraries (the old settings form) wins."""
+        if not isinstance(data, dict): return data
+        data = dict(data)
+        dirs, libs = data.get("scan_dirs"), data.get("libraries")
+        if not isinstance(dirs, list): dirs = [""] if libs is None else None
+        if libs is None:
+            data["libraries"] = _default_library(dirs)
+        elif dirs is not None:
+            try:
+                union = {canonical_folder(f) for l in libs for f in (l["folders"] if isinstance(l, dict) else l.folders)}
+                if union != {canonical_folder(f) for f in dirs}: data["libraries"] = _default_library(dirs)
+            except (ValueError, KeyError, TypeError, AttributeError): pass  # validation reports it
+        return data
+
+    @model_validator(mode="after")
+    def sync_scan_dirs(self):
+        ids, names = set(), set()
+        for library in self.libraries:
+            if not library.id:
+                library.id = uuid.uuid4().hex[:8]
+            if library.id in ids: raise ValueError("Library ids must be unique")
+            if library.name.casefold() in names: raise ValueError("Library names must be unique")
+            ids.add(library.id); names.add(library.name.casefold())
+        self.scan_dirs = list(dict.fromkeys(f for library in self.libraries for f in library.folders))
+        return self
 
     @field_validator("model")
     @classmethod
@@ -72,6 +144,27 @@ def safe_relative(value, allow_empty=False):
     p = PurePosixPath(value)
     if p.is_absolute() or ".." in p.parts or (not value and not allow_empty): raise ValueError("Path must stay inside the media folder")
     return p
+
+def settings_with_libraries(settings, libraries):
+    """Settings with a new library list (scan_dirs follows it)."""
+    data = settings.model_dump(); data.pop("scan_dirs")
+    data["libraries"] = [l if isinstance(l, dict) else l.model_dump() for l in libraries]
+    return Settings.model_validate(data)
+
+def library_folders(settings, library=None):
+    """The folders to look in: one library's, or (no library) every library's. KeyError if unknown."""
+    if library in (None, ""): return list(settings.scan_dirs)
+    for item in settings.libraries:
+        if item.id == library: return list(item.folders)
+    raise KeyError(library)
+
+def in_folders(relative, folders):
+    """True if this media-relative path is inside one of the folders ("" is the whole media folder)."""
+    return any(not f or relative == f or relative.startswith(f + "/") for f in folders)
+
+def leads_to_folders(relative, folders):
+    """True for a folder you must open to reach a library folder (so browsing can get there)."""
+    return in_folders(relative, folders) or any(not relative or f.startswith(relative + "/") for f in folders)
 
 def media_path(root, relative, file=False, kinds=VIDEO):
     safe_relative(relative, allow_empty=not file)
@@ -109,6 +202,14 @@ class Store:
               CREATE UNIQUE INDEX IF NOT EXISTS active_jobs ON jobs(dedupe) WHERE status IN ('queued','running','cancelling');
               CREATE TABLE IF NOT EXISTS seen(path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, stable REAL, signature TEXT DEFAULT '');
               CREATE TABLE IF NOT EXISTS lyric_files(path TEXT PRIMARY KEY, sha256 TEXT NOT NULL, updated REAL NOT NULL);
+              CREATE TABLE IF NOT EXISTS audit(path TEXT PRIMARY KEY, kind TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL,
+                stable REAL NOT NULL, checked REAL NOT NULL, state TEXT NOT NULL, missing TEXT NOT NULL DEFAULT '[]',
+                found TEXT NOT NULL DEFAULT '[]', job_id TEXT NOT NULL DEFAULT '', signature TEXT NOT NULL DEFAULT '');
+              CREATE INDEX IF NOT EXISTS audit_state ON audit(state);
+              CREATE TABLE IF NOT EXISTS monitor_state(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS quality(job_id TEXT NOT NULL, language TEXT NOT NULL, path TEXT NOT NULL,
+                words INTEGER NOT NULL, segments INTEGER NOT NULL, confidence REAL, updated REAL NOT NULL, PRIMARY KEY(job_id,language));
+              CREATE TRIGGER IF NOT EXISTS quality_cleanup AFTER DELETE ON jobs BEGIN DELETE FROM quality WHERE job_id=old.id; END;
             """)
             # Upgrade existing app-data in place; serialize migrations across web/worker processes.
             db.execute("BEGIN IMMEDIATE")
@@ -188,9 +289,10 @@ class Store:
     def apply(self,ids,action):
         """Archives, restores or removes the chosen jobs. Jobs that aren't finished
         are left alone. Returns how many changed."""
-        if action not in ('archive','unarchive','remove'): raise ValueError('Invalid action')
+        if action not in ('archive','unarchive','remove','cancel'): raise ValueError('Invalid action')
         ids=sorted(set(ids))
         if not ids: return 0
+        if action=='cancel': return self.cancel_many(ids)
         marks=','.join('?'*len(ids))
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -226,6 +328,52 @@ class Store:
         if not fields or set(fields)-{"status","stage","progress","error","outputs","cancel"}: raise ValueError("Invalid job update")
         fields={k:json.dumps(v) if k=="outputs" else v for k,v in fields.items()}; fields["updated"]=time.time()
         with self.db() as db: db.execute("UPDATE jobs SET "+",".join(k+"=?" for k in fields)+" WHERE id=?",[*fields.values(),id])
+    def record_quality(self,job_id,language,path,words,segments,confidence=None,keep_confidence=False):
+        """Saves the Quality page numbers for one subtitle file. keep_confidence keeps
+        an already-recorded confidence (used after an edit, which only changes counts)."""
+        with self.db() as db:
+            if keep_confidence:
+                row=db.execute('SELECT confidence FROM quality WHERE job_id=? AND language=?',(job_id,language)).fetchone()
+                confidence=row[0] if row else None
+            db.execute('INSERT OR REPLACE INTO quality(job_id,language,path,words,segments,confidence,updated) VALUES(?,?,?,?,?,?,?)',
+                (job_id,language,path,int(words),int(segments),None if confidence is None else float(confidence),time.time()))
+    def quality(self,job_ids):
+        """Recorded quality rows for these jobs: {job_id: {language: row}}."""
+        ids=sorted(set(job_ids));found={}
+        for start in range(0,len(ids),500):
+            part=ids[start:start+500]
+            with self.db() as db:
+                for row in db.execute('SELECT * FROM quality WHERE job_id IN ('+','.join('?'*len(part))+')',part):
+                    found.setdefault(row['job_id'],{})[row['language']]=dict(row)
+        return found
+    def quality_jobs(self,limit=50,offset=0,folders=None):
+        """Finished subtitle jobs that wrote files, newest first, and how many there are.
+        folders: only jobs whose video is inside these folders (uploads that never touched
+        the media folder still show)."""
+        where="FROM jobs WHERE kind IN ('subtitle','text') AND status='completed' AND outputs NOT IN ('{}','')"
+        if folders is not None and not any(not f for f in folders):
+            with self.db() as db:
+                rows=db.execute('SELECT id,spec,outputs '+where+' ORDER BY updated DESC,id').fetchall()
+            keep=[]
+            for row in rows:
+                spec,outputs=json.loads(row[1]),json.loads(row[2])
+                paths=[spec.get(k) for k in ('path','video_path','source_path','base') if isinstance(spec.get(k),str) and spec.get(k)]
+                if not paths: paths=[v for v in outputs.values() if isinstance(v,str) and not v.startswith('config:')]
+                if not paths or any(in_folders(p,folders) for p in paths): keep.append(row[0])
+            return len(keep),[self.job(id) for id in keep[offset:offset+limit]]
+        with self.db() as db:
+            total=db.execute('SELECT COUNT(*) '+where).fetchone()[0]
+            ids=[r[0] for r in db.execute('SELECT id '+where+' ORDER BY updated DESC,id LIMIT ? OFFSET ?',(limit,offset))]
+        return total,[self.job(id) for id in ids]
+    def cancel_many(self,ids):
+        """Cancels the chosen waiting, paused or running jobs, the same as Cancel on
+        each one. Finished, already-cancelling or unknown jobs are left alone.
+        Returns how many were cancelled."""
+        ids=sorted(set(ids))
+        if not ids: return 0
+        marks=','.join('?'*len(ids))
+        with self.db() as db:
+            return db.execute("UPDATE jobs SET cancel=1,pause_requested=0,resume_after_pause=0,status=CASE WHEN status IN ('queued','paused') THEN 'cancelled' ELSE 'cancelling' END,updated=? WHERE id IN ("+marks+") AND status IN ('queued','running','pausing','paused')",(time.time(),*ids)).rowcount
     def cancel(self,id):
         self.job(id)
         with self.db() as db:

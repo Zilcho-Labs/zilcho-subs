@@ -122,6 +122,21 @@ def test_selected_jobs_only_are_changed(client):
     assert c in recent_ids(client)
 
 
+def test_selected_jobs_can_be_cancelled_together(client):
+    waiting, paused, running = queue(client, 'a.mkv'), queue(client, 'b.mkv', 'paused'), queue(client, 'c.mkv', 'running')
+    done = queue(client, 'd.mkv', 'completed')
+    r = client.post('/api/jobs/selection', json={'ids': [waiting, paused, running, done, 'nope'], 'action': 'cancel'})
+    assert r.status_code == 200 and r.json()['count'] == 3  # the finished and unknown jobs are left alone
+    jobs = {j['id']: j for j in client.get('/api/state').json()['jobs']}
+    assert jobs[waiting]['status'] == jobs[paused]['status'] == 'cancelled'
+    assert jobs[running]['status'] == 'cancelling'  # the worker stops it, as with the single Cancel button
+    assert jobs[done]['status'] == 'completed'
+    # Asking again doesn't count jobs already cancelled or on their way out.
+    assert client.post('/api/jobs/selection', json={'ids': [waiting, running], 'action': 'cancel'}).json()['count'] == 0
+    # Cancelled jobs are finished, so they can then be removed as a selection.
+    assert client.post('/api/jobs/selection', json={'ids': [waiting, paused], 'action': 'remove'}).json()['count'] == 2
+
+
 @pytest.mark.parametrize('body', [{'ids': [], 'action': 'remove'}, {'ids': ['x'], 'action': 'wipe'}])
 def test_selection_rejects_bad_requests(client, body):
     assert client.post('/api/jobs/selection', json=body).status_code == 422

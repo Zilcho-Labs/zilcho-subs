@@ -1,27 +1,31 @@
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import time
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from . import __version__
-from .core import ALIASES, AUDIO, Store, Settings, MODELS, LANGUAGES, VIDEO, media_path, safe_relative, validate_srt, write_sidecar
+from .core import ALIASES, AUDIO, Store, Settings, Library, MODELS, LANGUAGES, VIDEO, in_folders, leads_to_folders, library_folders, media_path, safe_relative, settings_with_libraries, validate_srt, write_sidecar
 from .pipeline import model_ready, installed_packs
 from .sounds import sound_model_ready
 from .denoise import model_ready as cleanup_model_ready
 from .runner import Runner
+from . import monitor as library
+from . import jellyfin, mediaserver
+from . import status as file_status
 
 class QueueMove(BaseModel): direction: str = Field(pattern="^(up|down|top|bottom)$")
 class JobSelection(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=1000)
-    action: str = Field(pattern="^(archive|unarchive|remove)$")
+    action: str = Field(pattern="^(archive|unarchive|remove|cancel)$")
 class JobCleanup(BaseModel):
     statuses: list[str] = Field(min_length=1, max_length=4)
     action: str = Field(pattern="^(archive|remove)$")
@@ -49,6 +53,28 @@ class LyricsItem(BaseModel):
     path: str = Field(max_length=2048)
     regenerate: bool = False
 class LyricsEdit(BaseModel): text: str = Field(max_length=500_000)
+class AuditRequest(BaseModel):
+    path: str | None = Field(default=None,max_length=2048)
+    generate: bool = False
+    kinds: list[str] = Field(default_factory=lambda: ['video'],max_length=2)
+class QueueBatch(BaseModel):
+    paths: list[str] = Field(min_length=1,max_length=5000)
+    audio_stream: int | None = Field(default=None,ge=0,le=1024)
+    regenerate: bool = False
+class AuditBatch(BaseModel):
+    paths: list[str] = Field(min_length=1,max_length=5000)
+class JellyfinLink(BaseModel):
+    url: str = Field(default='',max_length=512)
+    api_key: str = Field(default='',max_length=256)  # empty keeps the saved key
+    media_root: str = Field(default='/media',max_length=1024)
+    notify: bool = True
+    refresh_after_audit: bool = False
+class CoverageGenerate(BaseModel):
+    what: str = Field(pattern='^(subtitles|lyrics|enhanced)$')
+    language: str | None = Field(default=None,max_length=8)
+class JellyfinTest(BaseModel):
+    url: str | None = Field(default=None,max_length=512)
+    api_key: str = Field(default='',max_length=256)
 
 
 def create_app(config=None,media=None,password=None,run_workers=True):
@@ -59,19 +85,20 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     salt=secrets.token_bytes(32)
     derive=lambda value: hashlib.pbkdf2_hmac('sha256',value.encode(),salt,300000)
     password_hash=derive(password); del password
-    sessions={}; failures={}; auth_lock=threading.Lock(); runner=Runner(store,root)
+    sessions={}; failures={}; auth_lock=threading.Lock(); runner=Runner(store,root); monitor=library.Monitor(store,root)
     @asynccontextmanager
     async def lifespan(app):
-        if run_workers: runner.start()
+        if run_workers: runner.start(); monitor.start()
         yield
-        if run_workers: runner.stop()
+        if run_workers: monitor.stop(); runner.stop()
     app=FastAPI(title='Zilcho Subs',version=__version__,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
-    app.state.store=store; app.state.runner=runner
+    app.state.store=store; app.state.runner=runner; app.state.monitor=monitor
     def authenticated(request): return sessions.get(request.cookies.get('zilcho_session',''),0)>time.time()
     @app.middleware('http')
     async def guard(request,call_next):
         if request.method not in ('GET','HEAD','OPTIONS'):
             length=request.headers.get('content-length')
+            if length is None and request.method=='DELETE': length='0'  # browsers send no length for an empty DELETE
             if length is None: return JSONResponse({'detail':'Content-Length is required'},411)
             try: count=int(length)
             except ValueError: return JSONResponse({'detail':'Invalid Content-Length'},400)
@@ -133,17 +160,141 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     def settings(data:Settings):
         for folder in data.scan_dirs: media_path(root,folder)
         store.save_settings(data); return {'ok':True}
+    # ----- Libraries: named sets of folders. Files outside every library are invisible. -----
+    def save_libraries(libraries):
+        for item in libraries:
+            for folder in item['folders']: media_path(root,folder)
+        updated=settings_with_libraries(store.settings(),libraries); store.save_settings(updated); return updated
+    @app.get('/api/libraries')
+    def libraries_list():
+        from . import coverage
+        return {'libraries':[l.model_dump() for l in store.settings().libraries],'coverage_max_files':coverage.MAX_FILES}
+    @app.post('/api/libraries')
+    def libraries_add(data:Library):
+        current=[l.model_dump() for l in store.settings().libraries]
+        updated=save_libraries(current+[{**data.model_dump(),'id':''}])
+        return next(l.model_dump() for l in updated.libraries if l.id not in {c['id'] for c in current})
+    @app.put('/api/libraries/{id}')
+    def libraries_edit(id:str,data:Library):
+        current=[l.model_dump() for l in store.settings().libraries]
+        if id not in {c['id'] for c in current}: raise KeyError(id)
+        updated=save_libraries([{**data.model_dump(),'id':id} if c['id']==id else c for c in current])
+        return next(l.model_dump() for l in updated.libraries if l.id==id)
+    @app.delete('/api/libraries/{id}')
+    def libraries_delete(id:str):
+        current=[l.model_dump() for l in store.settings().libraries]
+        if id not in {c['id'] for c in current}: raise KeyError(id)
+        save_libraries([c for c in current if c['id']!=id]); return {'ok':True}
+    @app.get('/api/folders')
+    def folder_list(path:str=''):
+        # For the library folder picker: sub-folders only, from the whole media folder
+        # (not limited to libraries, since the picker is how you choose them).
+        path=path.strip('/'); folder=media_path(root,path)
+        if not folder.is_dir(): raise ValueError('Folder not found')
+        names=[]; truncated=False
+        for p in sorted(folder.iterdir(),key=lambda p:p.name.casefold()):
+            if p.name.startswith('.') or p.is_symlink() or not p.is_dir(): continue
+            if len(names)>=2000: truncated=True; break
+            names.append({'name':p.name,'path':p.relative_to(Path(root).resolve()).as_posix()})
+        return {'path':path,'folders':names,'truncated':truncated}
+    def visible_folders(library_id):
+        # The folders a list may show: one library's (?library=<id>), or every library's.
+        return library_folders(store.settings(),library_id or None)
+    # ----- Monitor library -----
+    @app.post('/api/audit')
+    def audit(data:AuditRequest):
+        if set(data.kinds)-set(library.KINDS): raise ValueError('Choose video or song')
+        generate=tuple(data.kinds) if data.generate else ()
+        if data.path is not None: return library.audit_path(store,root,data.path,generate)
+        if monitor.alive: monitor.request(generate); return {'started':True}
+        # No background thread (tests, or workers turned off): run it here.
+        return {'started':False,'queued':monitor.full_audit(generate)}
+    @app.post('/api/audit/dismiss')
+    def audit_dismiss(): library.dismiss(store); return {'ok':True}
+    @app.get('/api/state/audit')
+    def audit_state(state:str='',kind:str='',items:bool=True,limit:int=200,offset:int=0,q:str='',missing:str='',sort:str='status',paths:bool=False,lib:str=Query('',alias='library')):
+        if state and state not in library.STATES: raise ValueError('Unknown audit state')
+        if kind and kind not in library.KINDS: raise ValueError('Choose video or song')
+        missing=missing.strip().lower()
+        if missing and missing!='lyrics' and not re.fullmatch('[a-z]{2,3}',missing): raise ValueError('Choose a language code or lyrics')
+        folders=visible_folders(lib)
+        result={'summary':library.summary(store,monitor,folders=folders)}
+        if paths:
+            # Select all: every matching file that can be queued (missing or failed).
+            _total,rows=library.items(store,state or None,kind or None,0,0,q[:200],missing or None,sort,folders)
+            picked=[r['path'] for r in rows if r['state'] in ('missing','failed')]
+            result.update(total=len(picked),paths=picked)
+        elif items:
+            total,rows=library.items(store,state or None,kind or None,0 if limit<=0 else min(limit,10000),max(0,offset),q[:200],missing or None,sort,folders)
+            for row in rows: row['status']=audit_status(row)
+            result.update(total=total,items=rows)
+        return result
+    def audit_status(row):
+        # What's next to the file, from the names the last check saw.
+        stem=Path(row['path']).stem
+        if row['kind']=='video':
+            langs=set()
+            for name in row['found']:
+                if name.startswith(stem+'.'):
+                    tag=name[len(stem)+1:].split('.')[0].split('-')[0]
+                    langs.add(ALIASES.get(tag.lower(),tag))
+            return {'subs':sorted(langs),'missing':row['missing']}
+        return file_status.song_status((root/row['path']).parent,stem,row['found'])
+    @app.post('/api/audit/batch')
+    def audit_batch(data:AuditBatch):
+        # Queue selected: the same as pressing each file's own Make button.
+        queued,errors=0,[]
+        for path in dict.fromkeys(data.paths):
+            try: queued+=len(library.audit_path(store,root,path,library.KINDS)['queued'])
+            except (ValueError,OSError) as error:
+                errors.append({'path':path,'error':str(error)})
+                if 'Queue is full' in str(error): break
+        return {'queued':queued,'errors':errors}
+    # ----- Jellyfin (optional). The API key never leaves the server. -----
+    @app.get('/api/jellyfin')
+    def jellyfin_state(): return jellyfin.public(store)
+    @app.post('/api/jellyfin')
+    def jellyfin_save(data:JellyfinLink):
+        if not data.url.strip(): jellyfin.forget(store); return jellyfin.public(store)
+        return jellyfin.save(store,data.url,data.api_key,data.media_root,data.notify,data.refresh_after_audit)
+    @app.post('/api/jellyfin/test')
+    def jellyfin_test(data:JellyfinTest): return {'ok':True,'server':jellyfin.test(store,data.url,data.api_key)}
+    @app.post('/api/jellyfin/forget')
+    def jellyfin_forget(): jellyfin.forget(store); return jellyfin.public(store)
+    # ----- Jellyfin, Emby and Plex (optional), one shape for all three. Keys never leave the server. -----
+    def server_kind(kind):
+        if kind not in mediaserver.KINDS: raise HTTPException(404,'Unknown media server')
+        return kind
+    @app.get('/api/servers')
+    def servers_state(): return [mediaserver.public(k,store) for k in mediaserver.KINDS]
+    @app.get('/api/servers/{kind}')
+    def server_state(kind:str): return mediaserver.public(server_kind(kind),store)
+    @app.post('/api/servers/{kind}')
+    def server_save(kind:str,data:JellyfinLink):
+        kind=server_kind(kind)
+        if not data.url.strip(): mediaserver.forget(kind,store); return mediaserver.public(kind,store)
+        return mediaserver.save(kind,store,data.url,data.api_key,data.media_root,data.notify,data.refresh_after_audit)
+    @app.post('/api/servers/{kind}/test')
+    def server_test(kind:str,data:JellyfinTest): return {'ok':True,'server':mediaserver.test(server_kind(kind),store,data.url,data.api_key)}
+    @app.post('/api/servers/{kind}/forget')
+    def server_forget(kind:str): kind=server_kind(kind); mediaserver.forget(kind,store); return mediaserver.public(kind,store)
     @app.get('/api/browse')
-    def browse(path:str=''):
+    def browse(path:str='',lib:str=Query('',alias='library')):
+        folders=visible_folders(lib); path=path.strip('/')
+        if not leads_to_folders(path,folders): raise ValueError('That folder is not in a library')
         folder=media_path(root,path)
         if not folder.is_dir(): raise ValueError('Folder not found')
-        entries=[]; truncated=False
-        for i,p in enumerate(sorted(folder.iterdir(),key=lambda p:(not p.is_dir(),p.name.casefold()))):
-            if i>=1000: truncated=True; break
+        listing=sorted(folder.iterdir(),key=lambda p:(not p.is_dir(),p.name.casefold())); names=[p.name for p in listing]
+        targets=store.settings().target_languages; entries=[]; truncated=False
+        for i,p in enumerate(listing):
+            if i>=5000: truncated=True; break
             if p.is_symlink() or p.name.startswith('.'): continue
+            if not (leads_to_folders if p.is_dir() else in_folders)(p.relative_to(root).as_posix(),folders): continue
             if p.is_dir() or p.suffix.lower() in VIDEO or p.suffix.lower()=='.srt':
-                entries.append({'path':p.relative_to(root).as_posix(),'name':p.name,'directory':p.is_dir(),'subtitle':p.suffix.lower()=='.srt','bytes':p.stat().st_size if p.is_file() else 0})
-        return {'path':path,'entries':entries,'truncated':truncated}
+                entry={'path':p.relative_to(root).as_posix(),'name':p.name,'directory':p.is_dir(),'subtitle':p.suffix.lower()=='.srt','bytes':p.stat().st_size if p.is_file() else 0}
+                if p.is_file() and p.suffix.lower() in VIDEO: entry['status']=file_status.video_status(folder,p.stem,names,targets)
+                entries.append(entry)
+        return {'path':path,'entries':entries,'truncated':truncated,'targets':targets}
     @app.post('/api/subtitles')
     def translate_subtitles(data:TextRequest):
         import re
@@ -182,6 +333,18 @@ def create_app(config=None,media=None,password=None,run_workers=True):
         media_path(root,data.path,file=True)
         spec={**data.model_dump(),'settings':store.settings().model_dump()}
         return {'id':store.enqueue('subtitle',spec)}
+    @app.post('/api/jobs/batch')
+    def enqueue_batch(data:QueueBatch):
+        # Queue selected: one normal subtitle job per file, same as Queue subtitles.
+        settings=store.settings().model_dump(); ids,errors=[],[]
+        for path in dict.fromkeys(data.paths):
+            try:
+                media_path(root,path,file=True)
+                ids.append(store.enqueue('subtitle',{'path':path,'audio_stream':data.audio_stream,'regenerate':data.regenerate,'settings':settings}))
+            except (ValueError,OSError) as error:
+                errors.append({'path':path,'error':str(error)})
+                if 'Queue is full' in str(error): break
+        return {'ids':ids,'count':len(ids),'errors':errors}
     @app.post('/api/jobs/{id}/cancel')
     def cancel(id:str): store.cancel(id); return {'ok':True}
     @app.post('/api/jobs/{id}/pause')
@@ -216,21 +379,39 @@ def create_app(config=None,media=None,password=None,run_workers=True):
         return {'id':store.enqueue(job['kind'],spec)}
     # ----- Music lyrics -----
     @app.get('/api/music/browse')
-    def music_browse(path:str=''):
+    def music_browse(path:str='',lib:str=Query('',alias='library')):
+        folders=visible_folders(lib); path=path.strip('/')
+        if not leads_to_folders(path,folders): raise ValueError('That folder is not in a library')
         folder=media_path(root,path)
         if not folder.is_dir(): raise ValueError('Folder not found')
-        entries=[]; truncated=False
-        for i,p in enumerate(sorted(folder.iterdir(),key=lambda p:(not p.is_dir(),p.name.casefold()))):
-            if i>=1000: truncated=True; break
+        listing=sorted(folder.iterdir(),key=lambda p:(not p.is_dir(),p.name.casefold())); names=[p.name for p in listing]
+        targets=store.settings().target_languages; entries=[]; truncated=False
+        for i,p in enumerate(listing):
+            if i>=5000: truncated=True; break
             if p.is_symlink() or p.name.startswith('.'): continue
+            if not (leads_to_folders if p.is_dir() else in_folders)(p.relative_to(root).as_posix(),folders): continue
             if p.is_dir() or p.suffix.lower() in AUDIO:
-                entries.append({'path':p.relative_to(root).as_posix(),'name':p.name,'directory':p.is_dir(),
-                    'lyrics':p.is_file() and p.with_name(p.stem+'.lrc').is_file()})
+                entry={'path':p.relative_to(root).as_posix(),'name':p.name,'directory':p.is_dir(),
+                    'lyrics':p.is_file() and p.with_name(p.stem+'.lrc').is_file()}
+                if p.is_file(): entry['status']=file_status.song_status(folder,p.stem,names)
+                entries.append(entry)
         return {'path':path,'entries':entries,'truncated':truncated}
     @app.post('/api/lyrics')
     def make_lyrics(data:LyricsItem):
         media_path(root,data.path,file=True,kinds=AUDIO)
         return {'id':store.enqueue('lyrics',{'path':data.path,'regenerate':data.regenerate,'settings':store.settings().model_dump()})}
+    @app.post('/api/lyrics/batch')
+    def make_lyrics_batch(data:QueueBatch):
+        # Queue selected songs: one normal lyrics job each, same as Make lyrics.
+        settings=store.settings().model_dump(); ids,errors=[],[]
+        for path in dict.fromkeys(data.paths):
+            try:
+                media_path(root,path,file=True,kinds=AUDIO)
+                ids.append(store.enqueue('lyrics',{'path':path,'regenerate':data.regenerate,'settings':settings}))
+            except (ValueError,OSError) as error:
+                errors.append({'path':path,'error':str(error)})
+                if 'Queue is full' in str(error): break
+        return {'ids':ids,'count':len(ids),'errors':errors}
     def lyrics_job(id):
         job=store.job(id)
         if job['kind']!='lyrics': raise KeyError(id)
@@ -283,6 +464,25 @@ def create_app(config=None,media=None,password=None,run_workers=True):
         else: path=media_path(root,relative)
         if path.suffix!='.srt' or not path.is_file(): raise ValueError('Subtitle file missing')
         return job,path
+    @app.get('/api/quality')
+    def quality_overview(limit:int=50,offset:int=0,lib:str=Query('',alias='library')):
+        from . import quality
+        return quality.overview(store,root,limit,offset,visible_folders(lib))
+    @app.get('/api/coverage')
+    def coverage_report(refresh:bool=False,lib:str=Query('',alias='library')):
+        from . import coverage
+        return coverage.report(store,root,refresh,lib or None)[0]
+    @app.post('/api/coverage/generate')
+    def coverage_generate(data:CoverageGenerate,lib:str=Query('',alias='library')):
+        from . import coverage
+        result=coverage.generate(store,root,data.what,data.language,lib or None)
+        return {**result,'coverage':coverage.report(store,root,library=lib or None)[0]}
+    @app.get('/api/jobs/{id}/quality')
+    def job_quality(id:str):
+        from . import quality
+        job=store.job(id)
+        if job['kind'] not in ('subtitle','text'): raise ValueError('Only subtitle jobs have a quality report')
+        return quality.job_report(store,root,job)
     @app.get('/api/jobs/{id}/subtitles/{language}')
     def preview(id:str,language:str):
         _job,path=subtitle_path(id,language)
