@@ -18,6 +18,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import embedded
 from .core import ACTIVE, AUDIO, VIDEO, library_folders, media_path
 from .status import song_status, video_status
 
@@ -68,18 +69,25 @@ def scan(store, root, library=None):
     videos, songs = [], []
     have = {t: 0 for t in targets}
     truncated = False
+    # What's inside files comes from the saved answers only: counting never probes.
+    # A file nobody has checked inside yet counts by its files alone, and a failed
+    # check does too, so a bad file is never skipped.
+    saved, now = embedded.snapshot(store), time.time()
+    inside = {"checked": 0, "unchecked": 0, "failed": 0}
     for count, (folder, names, path) in enumerate(_walk(root, folders)):
         if count >= MAX_FILES:
             truncated = True
             break
         relative = path.relative_to(root).as_posix()
+        answer = embedded.known(saved, relative, path, now)
+        inside["unchecked" if answer is None else "failed" if answer.get("error") else "checked"] += 1
         if path.suffix.lower() in VIDEO:
-            subs = video_status(folder, path.stem, names, [])["subs"]
+            subs = video_status(folder, path.stem, names, [], answer, settings.skip_existing)["subs"]
             videos.append((relative, set(subs)))
             for language in subs:
                 have[language] = have.get(language, 0) + 1
         else:
-            status = song_status(folder, path.stem, names)
+            status = song_status(folder, path.stem, names, answer)
             songs.append((relative, status["lyrics"], status["enhanced"], path.stem + ".lrc" in names))
 
     def share(n, total):
@@ -97,6 +105,7 @@ def scan(store, root, library=None):
         "videos": len(videos),
         "songs": len(songs),
         "targets": targets,
+        "inside": {**inside, "total": inside["checked"] + inside["unchecked"] + inside["failed"], "used": settings.skip_existing},
         "subtitles": subtitles,
         "lyrics": share(sum(1 for s in songs if s[1]), len(songs)),
         "enhanced": share(sum(1 for s in songs if s[2]), len(songs)),
@@ -120,6 +129,57 @@ def report(store, root, refresh=False, library=None):
                 del _cache[next(iter(_cache))]
             _cache[key] = cached
     return {k: v for k, v in cached.items() if not k.startswith("_")}, cached
+
+
+_inside_lock = threading.Lock()
+_inside = {"running": False, "done": 0, "total": 0, "failed": 0, "library": None, "error": ""}
+
+
+def inside_progress():
+    with _inside_lock:
+        return dict(_inside)
+
+
+def _inside_pass(store, root, library):
+    try:
+        folders = library_folders(store.settings(), library)
+        root = Path(root).resolve()
+        saved, now = embedded.snapshot(store), time.time()
+        todo = []
+        for count, (_folder, _names, path) in enumerate(_walk(root, folders)):
+            if count >= MAX_FILES:
+                break
+            relative = path.relative_to(root).as_posix()
+            if embedded.known(saved, relative, path, now) is None:   # failed ones wait for their retry window
+                todo.append(relative)
+        with _inside_lock:
+            _inside["total"] = len(todo)
+        for start in range(0, len(todo), embedded.MAX_PATHS):
+            results = embedded.check_many(store, root, todo[start:start + embedded.MAX_PATHS])
+            with _inside_lock:
+                _inside["done"] += len(results)
+                _inside["failed"] += sum(1 for r in results.values() if r.get("error"))
+    except Exception as error:  # a bad share must not leave the button stuck
+        with _inside_lock:
+            _inside["error"] = str(error)[:200] or "The check stopped"
+    finally:
+        with _inside_lock:
+            _inside["running"] = False
+        with _lock:
+            _cache.clear()      # coverage counts again with the new answers
+
+
+def start_inside_check(store, root, library=None):
+    """Starts a background pass that looks inside every file not yet checked (progress:
+    inside_progress). Capped at MAX_FILES; a second click while it runs does nothing."""
+    library_folders(store.settings(), library)   # unknown library: KeyError
+    with _inside_lock:
+        if _inside["running"]:
+            return dict(_inside)
+        _inside.update(running=True, done=0, total=0, failed=0, library=library or None, error="")
+        snapshot = dict(_inside)
+    threading.Thread(target=_inside_pass, args=(store, root, library), name="zilcho-inside-check", daemon=True).start()
+    return snapshot
 
 
 def _active(store, kind):

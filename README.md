@@ -14,7 +14,7 @@ Made by [Zilcho Labs](https://zilcholabs.com). Zilcho Subs is an independent pro
 - **Dialogue cleanup (optional).** Removes background noise such as crowds, chanting, music and effects before listening, so lines buried in loud scenes are picked up. Uses DeepFilterNet3, an 8 MB download, and adds about a minute per episode. Videos only.
 - **Sound captions (optional).** Adds captions such as `[Dog barking]` to English subtitles using a small local sound classifier.
 - **Song lyrics.** Makes `.lrc` lyric files for music, line by line and optionally word by word for karaoke-style players. Lines follow the song's phrases.
-- **A queue that's easy to manage.** Pause, reorder, retry and "run next"; an interrupted video resumes from its last finished part. You can also set processing hours, and **Monitor library** watches your folders, shows what's missing subtitles or lyrics, and queues it. If you use Jellyfin, Emby or Plex, it can optionally tell your server when new files are ready ([docs/MONITOR-LIBRARY.md](docs/MONITOR-LIBRARY.md)).
+- **A queue that's easy to manage.** Pause, reorder, retry and "run next"; an interrupted video resumes from its last finished part. You can also set processing hours, and **Library status** shows how much of each collection has subtitles or lyrics, watches your folders, and queues what's missing. If you use Jellyfin, Emby or Plex, it can optionally tell your server when new files are ready ([docs/MONITOR-LIBRARY.md](docs/MONITOR-LIBRARY.md)).
 - **Your files are never changed.** Videos, songs and subtitle or lyric files that you (or another app) made are never modified or overwritten. New subtitles are always new files; regenerating makes a new version. Lyric files that Zilcho Subs made itself are updated in place when you make them again, unless you've edited them, in which case they're yours and left alone.
 
 ## Install
@@ -43,11 +43,11 @@ Don't expose the web UI directly to the internet. Use your private network or an
 
 ## First run
 
-1. Open **Media library** and check that your folders appear. Start with one short video.
+1. Open **Library** and check that your folders appear (add them under **Settings → Collections** first if the list says "No collections yet"). Start with one short video.
 2. Open **Speech models** and download a model. **tiny** is quick for a first test; **medium** (the default setting) is much more accurate. Choosing a model in Settings doesn't download it.
 3. In **Settings**, pick the audio language (or auto) and the subtitle languages you want, then save. Languages other than English need their translation packs installed from **Language packs**.
-4. Queue the video. When it finishes, preview the result, then refresh your Jellyfin library to see the new subtitle track.
-5. Once you're happy, open **Monitor library**, press **Scan now** to see what's missing, then turn on watching. The first scan includes files that are already there.
+4. Press **Make subtitles** on the video. When it finishes, preview the result, then refresh your Jellyfin library to see the new subtitle track.
+5. Once you're happy, open **Library status**: **Coverage** shows what's missing, **File results → Scan now** checks the files, and **Watching** turns on automatic checks. The first scan includes files that are already there.
 
 ## Files it writes
 

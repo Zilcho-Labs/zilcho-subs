@@ -4,6 +4,82 @@ What changed in each version of Zilcho Subs, newest first. The version shown in
 the app's footer comes from `zilcho_subs/__init__.py`. How and when to raise it
 is in [VERSIONING.md](VERSIONING.md).
 
+## 0.15.0 (November 22, 2026)
+
+- **Translate subtitles: Browse for the video.** **Attach to a video
+  (optional)** now has **Browse…** and **Clear** buttons. Browse opens a
+  picker that starts beside the chosen SRT, lists folders and videos from your
+  collections, and fills the path when you click a video. Typing the path still
+  works, and leaving it empty queues the translation without a video. The
+  server now also refuses a video that is outside every collection.
+
+- **Libraries are now called Collections.** The section in Settings is
+  **Collections**, and the selector on Library, Library status and Queue >
+  Completed is labelled **Collection** with **All collections** plus your saved
+  names. The page names **Library** and **Library status** stay, and so do the
+  All / Videos / Songs buttons. Saved names, folders, the remembered choice and
+  the **Everything (main folder)** collection are unchanged. Only wording
+  changed; the API (`/api/libraries`, `?library=`) works as before.
+
+- **Translate subtitles: pick the target by name.** The target-code box is now
+  a **Target language** dropdown (for example "Spanish (es)") listing every
+  language reachable from the original language through your installed
+  Language packs, including non-English ones and chained routes. It refreshes
+  when you change the original language or finish installing a pack. With no
+  choices it says so and points to **Language packs**. The server also checks
+  that the route exists. One target per submit.
+
+- **Embedded subtitles and lyrics are detected.** Library and Library status
+  now look inside video files for subtitle tracks (including MKV) and inside
+  songs for lyrics tags (mp3, flac, m4a, ogg, opus, wma). Chips show where each
+  language comes from, for example **Subs: en (embedded), es (file)**, plus
+  **Embedded only**, **Embedded + file**, **Lyrics: embedded** and **Scan
+  failed** with **Retry scan**. Files are looked at only when needed (the files
+  on screen, changed files during scanning, or the new **Check inside files**
+  button in Coverage), and the answers are remembered, so opening a page never
+  scans the whole collection. Coverage and **Generate missing** count a
+  subtitle track as present only when **Skip existing** is on; untagged tracks
+  show **Language unknown** and never count; embedded lyrics count as lyrics
+  but not as enhanced lyrics; a file that could not be read is counted by its
+  files alone. Nothing in your media is changed.
+
+- **Known limits.** Picture-based subtitle tracks (such as PGS) are shown but
+  are not text and are labelled as image subtitles. Embedded lyrics are never
+  counted as word-by-word lyrics.
+
+## 0.14.0 (November 22, 2026)
+
+- **Confidence bar on finished jobs.** In Queue > Completed the column is now
+  **Transcription confidence**: a percentage with a bar that shades red to green.
+  It only shows how sure the speech model was; translated languages reuse that
+  number and it is not a translation-accuracy score. Jobs made before 0.10.0 and
+  SRT-only translations show **no score**. The bands are unchanged (Excellent 95+,
+  Good 90-95, Fair 85-90, Poor under 85). Every finished file has a **Preview**
+  button that opens that language's subtitles.
+
+## 0.13.0 (November 22, 2026)
+
+A new sidebar: 11 entries became 8. Nothing was removed; features moved.
+
+- **One Library page.** Media library and Song lyrics are now one **Library**
+  page: a library dropdown (remembered between visits), a search box that
+  searches file names across the whole chosen library, the folder browser, and
+  All / Videos / Songs buttons. Every row has its own button (Make subtitles for
+  a video, Make lyrics for a song). The audio stream box and the two
+  Regenerate boxes are in an **Options** fold. You can tick videos and songs
+  together; they are queued as the right kind of job.
+- **Library status.** Monitor and Coverage are now one page, **Library status**,
+  with a switch for **Coverage** (opens first), **File results** and
+  **Watching**. The library you pick carries across the whole page.
+- **Buttons where you need them.** Each coverage row now says, for example,
+  "Generate missing English subtitles (12 videos)". **Retry N failed files**
+  sits next to the Show filter in File results and is hidden when nothing
+  failed. "Make missing subtitles" and "Make missing lyrics" follow the
+  library you picked (all libraries when you picked All libraries).
+- **Settings** now holds the Libraries manager and the Media servers panel.
+  **Subtitle quality** moved to **Queue > Completed**.
+- New read-only `GET /api/library/search` (file-name search over a library).
+
 ## 0.12.0 (November 20, 2026)
 
 - **Pick library folders by browsing.** In the Libraries panel on the Monitor

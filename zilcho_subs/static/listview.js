@@ -19,20 +19,40 @@ function iconButton(icon,label,cls='quiet icon-button'){const b=node('button',un
 
 // Status chips: "Subs: en, es" / "Missing: fr" / "Lyrics: yes" / "Enhanced: yes".
 function chip(text,tone){return node('span',text,'chip'+(tone?' '+tone:''));}
-function statusChips(kind,status){
+// Embedded subtitles and lyrics (inside the file) are shown next to the file ones:
+// "Subs: en (embedded), es (file)", "Embedded only", "Lyrics: embedded", "Scan failed" + Retry.
+// onRetry is optional; the Library page passes it so a failed scan can be tried again.
+function subtitleLabel(status){
+ const files=status.external||status.subs,inside=status.embedded||[];
+ const all=[...new Set([...files,...inside])].sort();
+ if(!status.external)return all.join(', ');// older answers: no source information
+ return all.map(l=>l+' ('+(inside.includes(l)&&files.includes(l)?'embedded + file':inside.includes(l)?'embedded':'file')+')').join(', ');}
+function lyricsLabel(status){
+ const where=status.lyrics_source;
+ return 'Lyrics: '+(status.lyrics_file&&status.lyrics_embedded?'file + embedded':status.lyrics_embedded?'embedded':where?'file':'yes');}
+function statusChips(kind,status,onRetry){
  const out=node('span',undefined,'chips');if(!status)return out;
  if(kind==='video'){
-  out.append(status.subs.length?chip('Subs: '+status.subs.join(', '),'ok'):chip('Subs: missing','warn'));
-  if(status.subs.length&&status.missing.length)out.append(chip('Missing: '+status.missing.join(', '),'warn'));
- }else if(status.lyrics){out.append(chip('Lyrics: yes','ok'),status.enhanced?chip('Enhanced: yes','ok'):chip('Enhanced: no'));}
+  const label=subtitleLabel(status);
+  out.append(label?chip('Subs: '+label,'ok'):chip('Subs: missing','warn'));
+  if(status.source==='both')out.append(chip('Embedded + file'));
+  else if(status.source==='embedded')out.append(chip('Embedded only'));
+  if(status.unknown)out.append(chip('Language unknown: '+status.unknown+(status.unknown===1?' track':' tracks'),'warn'));
+  if(status.bitmap&&status.bitmap.length)out.append(chip('Image subtitles: '+status.bitmap.join(', ')));
+  if((status.subs.length||status.unknown)&&status.missing.length)out.append(chip('Missing: '+status.missing.join(', '),'warn'));
+ }else if(status.lyrics){out.append(chip(lyricsLabel(status),'ok'),status.enhanced?chip('Enhanced: yes','ok'):chip('Enhanced: no'));}
  else out.append(chip('Lyrics: missing','warn'),...(status.enhanced?[chip('Enhanced: yes','ok')]:[]));
+ if(status.error){const failed=chip('Scan failed','warn');failed.title=status.error;out.append(failed);
+  if(onRetry){const b=node('button','Retry scan','quiet small');b.type='button';b.onclick=onRetry;out.append(b);}}
  return out;}
 
 /* o: {el, name, placeholder, filters:()=>[[value,label]], sorts:[[value,label]],
    key(item), label(item), path(item), folder(item), match(item,filter), compare(sort)->(a,b)=>n,
    selectable(item), row(item)->element, bulk(keys,view)->[buttons], all(view)->[buttons],
-   server(params)->{total,items} (Monitor: the server searches and pages),
-   serverKeys(params)->[keys] (server: every matching key, for Select all), noun:['file','files']} */
+   server(params)->{total,items} (Monitor, Library: the page code searches and pages),
+   serverKeys(params)->[keys] (server: every matching key, for Select all),
+   pickableTotal()->n (server: how many matching items can be ticked, when total also counts folders),
+   noun:['file','files']} */
 function listView(o){
  const v={items:[],total:0,page:1,selected:new Set(),shown:[],matching:[],seq:0};
  const tools=node('div',undefined,'list-tools'),search=node('input');search.type='search';search.placeholder=o.placeholder||'Search';search.setAttribute('aria-label',o.placeholder||'Search');search.className='list-search';
@@ -100,6 +120,7 @@ function listView(o){
   const end=pageButton('Last page »',pages,false,'Jump to the last page');end.disabled=v.page===pages;pager.append(next,end);}
 
  async function allKeys(){if(o.server)return o.serverKeys(params());return v.matching.filter(o.selectable).map(o.key);}
+ const pickableCount=()=>o.server?(o.pickableTotal?o.pickableTotal():v.total):v.matching.filter(o.selectable).length;
  function renderBar(){
   bar.replaceChildren();const pickable=v.shown.filter(o.selectable);
   if(pickable.length){const all=node('input');all.type='checkbox';all.className='row-pick';all.setAttribute('aria-label','Select every file on this page');
@@ -108,20 +129,21 @@ function listView(o){
    const label=node('label',undefined,'check list-all');label.append(all,v.selected.size?v.selected.size+' selected':'Select page');bar.append(label);}
   if(v.selected.size){bar.append(...o.bulk([...v.selected],api_v));
    bar.append(action('Clear selection',async()=>{v.selected.clear();redraw();},'quiet'));}
-  else{const total=o.server?v.total:v.matching.filter(o.selectable).length;
+  else{const total=pickableCount();
    if(total>pickable.length)bar.append(action(o.selectAllLabel?o.selectAllLabel(total):'Select all '+total,async()=>{for(const k of await allKeys())v.selected.add(k);redraw();},'quiet'));}
   bar.append(...(o.all?o.all(api_v):[]));}
  const redraw=()=>render(v.size?Math.max(1,Math.ceil(v.total/v.size)):1);
 
  const api_v={
-  set(items){v.items=items;v.selected.clear();v.page=1;setFilters();return update();},
+  set(items){v.items=items;v.selected.clear();v.sig=null;v.page=1;setFilters();return update();},
   update(){return update();},
   refilter(){setFilters();},
   clear(){v.selected.clear();v.sig=null;redraw();},
   redraw(){redraw();},
   keys:allKeys,
   get total(){return v.total;},
-  get pickable(){return o.server?v.total:v.matching.filter(o.selectable).length;},
+  get pickable(){return pickableCount();},
+  resetSearch(){search.value='';v.page=1;},
   get filter(){return filter.value;},
   get query(){return search.value.trim();},
   get selected(){return v.selected;}};

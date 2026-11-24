@@ -274,13 +274,34 @@ def process_subtitle(store, job, media_root, engine=None, probe_fn=probe, extrac
     store.update(job["id"],status="completed" if outputs else "skipped",stage="Subtitles ready" if outputs else "Existing subtitles preserved",progress=100)
 
 
+def reachable_targets(packs, source):
+    """Language codes reachable from source over installed packs (same walk as translation_route)."""
+    from collections import deque
+    pending=deque([source]); seen={source}
+    while pending:
+        language=pending.popleft()
+        for p in packs:
+            if p["source"]==language and p["target"] not in seen: seen.add(p["target"]); pending.append(p["target"])
+    seen.discard(source)
+    return sorted(seen)
+
+
+def targets_by_source(packs, names):
+    pack_names={p["target"]:p.get("to_name") or p["target"] for p in packs}
+    result={}
+    for source in sorted({p["source"] for p in packs}):
+        targets=reachable_targets(packs,source)
+        if targets: result[source]=[{"code":c,"name":names.get(c) or pack_names.get(c) or c} for c in targets]
+    return result
+
+
 def installed_packs(config):
     result=[]
     for metadata in (config/"packages").glob("*/metadata.json"):
         if metadata.is_symlink(): continue
         try:
             p=json.loads(metadata.read_text(encoding="utf-8"))
-            result.append({"source":p["from_code"],"target":p["to_code"],"name":p.get("from_name",p["from_code"])+" → "+p.get("to_name",p["to_code"])})
+            result.append({"source":p["from_code"],"target":p["to_code"],"to_name":p.get("to_name",p["to_code"]),"name":p.get("from_name",p["from_code"])+" → "+p.get("to_name",p["to_code"])})
         except (ValueError,KeyError,OSError): continue
     return result
 

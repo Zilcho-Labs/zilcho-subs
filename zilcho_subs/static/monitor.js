@@ -1,6 +1,9 @@
-// Monitor library: the status card in the sidebar (stays until dismissed), the
-// Monitor view, and its settings. Uses $, node, action, api, toast, refresh,
-// state, view and settingsLoaded from app.js.
+// Library status: the status card in the sidebar (stays until dismissed), the Library
+// status view (Coverage, File results and Watching, all for the library picked in the
+// dropdown), and the Media servers panel in Settings. Uses $, node, action, api, toast,
+// refresh, state, view and settingsLoaded from app.js, and withLibrary/libraryChoice/
+// libraryScopeName from libraries.js. Coverage itself is in coverage.js.
+let statusTab='coverage',monitorAgain=false;
 let monitorBusy=false;
 const MONITOR_LINES={scanning:'Scanning your library…',watching:'Watching…',off:'Monitor off',paused:'Paused',quiet:'Waiting for processing hours'};
 const MONITOR_PILLS={complete:'completed',missing:'skipped',queued:'queued',failed:'failed',waiting:'paused'};
@@ -46,6 +49,9 @@ function renderMonitorView(data){
  $('#monitor-error').hidden=!sum.last_error;$('#monitor-error').textContent=sum.last_error?'Last check failed: '+sum.last_error:'';
  $('#monitor-toggle').textContent=sum.watcher_enabled?'Stop watching':'Start watching';
  $('#monitor-make-subs').disabled=!(c.video.missing+c.video.failed);$('#monitor-make-lyrics').disabled=!(c.song.missing+c.song.failed);
+ const scope=' ('+libraryScopeName()+')';$('#monitor-make-subs').textContent='Make missing subtitles'+scope;$('#monitor-make-lyrics').textContent='Make missing lyrics'+scope;
+ // Retry shows only when this library has failed files, and says how many.
+ const failed=c.video.failed+c.song.failed;$('#monitor-retry-failed').hidden=!failed;$('#monitor-retry-failed').textContent='Retry '+plural(failed,'failed file','failed files');
 }
 
 // The list: the server searches, filters and pages (the library can be large).
@@ -79,17 +85,49 @@ const monitorList=listView({el:$('#monitor-items'),name:'monitor',placeholder:'S
    view.clear();toast(queuedMessage(count,keys.length,errors,'file'));await refreshMonitor();},'primary')]});
 
 async function refreshMonitor(){
- if(!state||monitorBusy)return;monitorBusy=true;
- try{const open=view==='monitor';
-  if(open){monitorList.refilter();await monitorList.update();if(view==='monitor')await loadServerStatus();}
-  else renderMonitorBadge((await api(withLibrary('/state/audit?items=false'))).summary);
- }finally{monitorBusy=false;}}
+ if(!state)return;
+ if(monitorBusy){monitorAgain=true;return;}// run once more when this finishes, so a tab switch isn't missed
+ monitorBusy=true;
+ try{
+  if(view==='monitor'&&statusTab!=='coverage'){monitorList.refilter();await monitorList.update();}
+  else{const data=await api(withLibrary('/state/audit?items=false'));renderMonitorBadge(data.summary);renderMonitorView(data);}
+  if(view==='settings')await loadServerStatus();
+ }finally{monitorBusy=false;if(monitorAgain){monitorAgain=false;setTimeout(quietly,0);}}}
 const quietly=()=>refreshMonitor().catch(e=>toast(e.message));
 
 async function monitorRequest(body,message){try{await api('/audit',body);toast(message);setTimeout(quietly,800);await quietly();}catch(e){toast(e.message);}}
 $('#monitor-scan').onclick=()=>monitorRequest({generate:false},'Checking your library. Results appear below as it goes.');
-$('#monitor-make-subs').onclick=()=>monitorRequest({generate:true,kinds:['video']},'Queueing subtitles for videos that are missing them.');
-$('#monitor-make-lyrics').onclick=()=>monitorRequest({generate:true,kinds:['song']},'Queueing lyrics for songs that have none.');
+// Queues paths one by one through the same call as "Queue selected". Returns [queued, errors].
+async function queueAudit(paths){
+ let count=0;const errors=[];
+ for(let i=0;i<paths.length;i+=1000){const r=await api('/audit/batch',{paths:paths.slice(i,i+1000)});count+=r.queued;errors.push(...r.errors);if(r.errors.some(e=>/Queue is full/.test(e.error)))break;}
+ return [count,errors];}
+// All libraries: the monitor does it, as before. One library: queue only that library's own missing or failed files.
+async function makeMissing(kind){
+ if(!libraryChoice)return monitorRequest({generate:true,kinds:[kind]},kind==='video'?'Queueing subtitles for videos that are missing them.':'Queueing lyrics for songs that have none.');
+ try{const data=await api(withLibrary('/state/audit?kind='+kind+'&paths=true'));
+  if(!data.paths.length)toast('Nothing to make in '+libraryScopeName()+'. If you just added files, press Scan now first.');
+  else{const [n,errors]=await queueAudit(data.paths);toast(queuedMessage(n,data.paths.length,errors,'file')+' ('+libraryScopeName()+')');}
+  setTimeout(quietly,800);await quietly();}catch(e){toast(e.message);}}
+$('#monitor-make-subs').onclick=()=>makeMissing('video');
+$('#monitor-make-lyrics').onclick=()=>makeMissing('song');
+// Retry the failed files of the library picked above (the button shows only when there are some).
+$('#monitor-retry-failed').onclick=async()=>{
+ const button=$('#monitor-retry-failed');button.disabled=true;
+ try{const data=await api(withLibrary('/state/audit?state=failed&paths=true'));
+  if(!data.paths.length)toast('No failed files to retry.');
+  else{const [n,errors]=await queueAudit(data.paths);toast(queuedMessage(n,data.paths.length,errors,'file'));}
+  setTimeout(quietly,800);await quietly();}catch(e){toast(e.message);}finally{button.disabled=false;}};
+// Coverage / File results / Watching. The library choice is shared, so only the open tab loads.
+function setStatusTab(tab){
+ statusTab=tab;
+ document.querySelectorAll('[data-status-tab]').forEach(b=>{const on=b.dataset.statusTab===tab;b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on));});
+ for(const name of ['coverage','results','watching'])$('#status-'+name).hidden=name!==tab;
+ if(tab==='coverage')loadCoverage();else monitorList.clear();
+ quietly();}
+document.querySelectorAll('[data-status-tab]').forEach(b=>b.onclick=()=>setStatusTab(b.dataset.statusTab));
+// A different library: reload whichever tab is open.
+function statusReload(){monitorList.clear();if(statusTab==='coverage')loadCoverage();quietly();}
 $('#monitor-dismiss').onclick=async()=>{try{await api('/audit/dismiss',{});await quietly();}catch(e){toast(e.message);}};
 $('#monitor-toggle').onclick=async()=>{try{await api('/settings',{...state.settings,watcher_enabled:!state.settings.watcher_enabled});settingsLoaded=false;await refresh();await quietly();}catch(e){toast(e.message);}};
 $('#monitor-filter').onchange=()=>{monitorList.clear();quietly();};$('#monitor-kind').onchange=()=>{monitorList.clear();quietly();};
@@ -145,7 +183,9 @@ function renderServerStatus(j){
 const loadServers=()=>{buildServerForms();return api('/servers').then(l=>l.forEach(renderServer)).catch(e=>toast(e.message));};
 const loadServerStatus=()=>api('/servers').then(l=>l.forEach(renderServerStatus)).catch(()=>{});
 buildServerForms();
-document.querySelectorAll('[data-view="monitor"]').forEach(e=>e.addEventListener('click',()=>{quietly();loadServers();}));
+document.querySelectorAll('[data-view="monitor"]').forEach(e=>e.addEventListener('click',()=>quietly()));
+// The Media servers panel is in Settings now: fill its forms when Settings opens.
+document.querySelectorAll('[data-view="settings"]').forEach(e=>e.addEventListener('click',()=>{quietly();loadServers();})); document.querySelectorAll('.monitor-open').forEach(e=>e.addEventListener('click',()=>{const b=$('#monitor-badge');if(b.classList.contains('news')||b.classList.contains('alert'))setStatusTab('results');}));// the sidebar card opens File results when it has something to report
 setInterval(()=>{if(state&&!document.hidden)quietly();},3000);
 // Show the card as soon as the app has loaded, not on the first 3-second tick.
 const monitorFirst=setInterval(()=>{if(state){clearInterval(monitorFirst);quietly();}},200);

@@ -1,21 +1,22 @@
-// Libraries: named sets of folders. This file has the library manager (on the Monitor
-// page) and the library dropdown on Media library, Song lyrics, Monitor, Coverage and
-// Quality. The choice is shared by those pages and remembered between visits; empty
-// means "All libraries". Uses $, node, api, toast, action, refresh, state, view,
-// readPref and savePref from the other scripts. Files outside every library are
-// hidden by the server, so nothing here has to filter them.
-const WHOLE_WARNING='Searching this library scans the entire folder.';
-const NO_LIBRARIES='No libraries yet. Add one on the Monitor page; files outside every library never show here.';
+// Collections (called "libraries" in the API, storage and code): named sets of folders.
+// This file has the collection manager (in Settings) and the Collection dropdown on
+// Library, Library status and Queue > Completed. The choice is shared by those pages and
+// remembered between visits; empty means "All collections".
+// Uses $, node, api, toast, action, refresh, state, view, readPref and savePref from the
+// other scripts. Files outside every collection are hidden by the server, so nothing here
+// has to filter them.
+const WHOLE_WARNING='Searching this collection scans the entire folder.';
+const NO_LIBRARIES='No collections yet. Add one in Settings; files outside every collection never show here.';
 let librariesLoaded=false,libraries=[],libraryChoice=readPref('library',''),libraryEditing=null;
 
 // ----- helpers (no page needed) -----
 function noLibraries(){return librariesLoaded&&!libraries.length;}
 function libraryParam(){return libraryChoice?'library='+encodeURIComponent(libraryChoice):'';}
 function withLibrary(path){const p=libraryParam();return p?path+(path.includes('?')?'&':'?')+p:path;}
-// A remembered choice only counts while that library still exists.
+// A remembered choice only counts while that collection still exists.
 function pickLibrary(list,saved){return saved&&pickableLibraries(list).some(l=>l.id===saved)?saved:'';}
-// The library made by an upgrade covers the whole media folder, which is what "All
-// libraries" already shows, so the dropdowns leave it out (it stays in the manager).
+// The collection made by an upgrade covers the whole media folder, which is what "All
+// collections" already shows, so the dropdowns leave it out (it stays in the manager).
 function isStarterLibrary(l){return l.id==='default'&&l.whole_folder;}
 function pickableLibraries(list){return list.filter(l=>!isStarterLibrary(l));}
 function libraryLabel(l){return isStarterLibrary(l)&&l.name==='Library'?'Everything (main folder)':l.name;}
@@ -23,7 +24,7 @@ function setLibraryChoice(id){libraryChoice=id||'';savePref('library',libraryCho
 function parseFolders(text){const seen=new Set();for(const line of String(text).split('\n')){const f=line.trim().replace(/^\/+|\/+$/g,'');if(f)seen.add(f);}return [...seen];}
 // Form values → request body, or {error}. "Whole main folder" is the empty folder.
 function libraryBody(name,foldersText,whole){
- name=String(name).trim();if(!name)return {error:'Give the library a name.'};
+ name=String(name).trim();if(!name)return {error:'Give the collection a name.'};
  const folders=whole?['']:parseFolders(foldersText);
  if(!folders.length)return {error:'Add at least one folder, or use the whole main folder.'};
  return {body:{name,folders,whole_folder:!!whole}};}
@@ -33,19 +34,19 @@ function describeLibrary(l){return l.whole_folder?'Whole main folder':l.folders.
 function renderLibraryPickers(){
  const current=libraries.find(l=>l.id===libraryChoice);
  for(const select of document.querySelectorAll('.library-select')){
-  select.replaceChildren(...[['','All libraries'],...pickableLibraries(libraries).map(l=>[l.id,l.name])].map(([value,label])=>{const o=node('option',label);o.value=value;return o;}));
+  select.replaceChildren(...[['','All collections'],...pickableLibraries(libraries).map(l=>[l.id,l.name])].map(([value,label])=>{const o=node('option',label);o.value=value;return o;}));
   select.value=libraryChoice;}
  for(const note of document.querySelectorAll('.library-note')){note.hidden=!(current&&current.whole_folder);note.textContent=WHOLE_WARNING;}}
-// Each page reloads its own list when the library changes; folders reset because the
-// old folder may not be in the new library.
+// Each page reloads its own list when the collection changes; folders reset because the
+// old folder may not be in the new collection.
 function reloadForLibrary(){
- for(const id of ['browse-path','music-path'])$('#'+id).value='';
- if(view==='library')browse().catch(e=>toast(e.message));
- else if(view==='music')browseMusic().catch(e=>toast(e.message));
- else if(view==='monitor'){monitorList.clear();quietly();}
- else if(view==='quality')loadQuality(0);
- else if(view==='coverage')loadCoverage();
+ $('#browse-path').value='';librarySearchCache=null;
+ if(view==='library')libraryReload();
+ else if(view==='monitor')statusReload();
+ else if(view==='queue'&&queueTab==='completed'){loadQuality(0);quietly();}
  else if(typeof quietly==='function')quietly();}
+// What the Make buttons and labels call the chosen collection.
+function libraryScopeName(){const l=libraries.find(x=>x.id===libraryChoice);return l?libraryLabel(l):'all collections';}
 function chooseLibrary(id){setLibraryChoice(id);renderLibraryPickers();reloadForLibrary();}
 
 // ----- manager -----
@@ -58,17 +59,17 @@ function renderLibraryList(){
  for(const lib of libraries){
   const row=node('div',undefined,'file-row library-row'),text=node('div',undefined,'file-main');
   text.append(node('strong',libraryLabel(lib)),node('span',describeLibrary(lib),'mono small muted'));
-  if(isStarterLibrary(lib))text.append(node('span','Shows everything, so no folders are hidden. Delete it once your own libraries are set up. "All libraries" then shows just your libraries.','small library-warning'));
+  if(isStarterLibrary(lib))text.append(node('span','Shows everything, so no folders are hidden. Delete it once your own collections are set up. "All collections" then shows just your collections.','small library-warning'));
   else if(lib.whole_folder)text.append(node('span',WHOLE_WARNING,'small library-warning'));
   const edit=node('button','Rename or change folders','secondary');edit.type='button';edit.onclick=()=>editLibrary(lib);
   const del=node('button','Delete','quiet');del.type='button';del.onclick=()=>deleteLibrary(lib);
   row.append(text,edit,del);list.append(row);}
- if(!libraries.length)list.append(node('p','No libraries yet. Until you make one, nothing shows on the list pages.','muted empty'));}
+ if(!libraries.length)list.append(node('p','No collections yet. Until you make one, nothing shows on the list pages.','muted empty'));}
 function editLibrary(lib){
  libraryEditing=lib?lib.id:null;
  $('#library-name').value=lib?libraryLabel(lib):'';$('#library-folders').value=lib?lib.folders.filter(Boolean).join('\n'):'';
  $('#library-whole').checked=!!(lib&&lib.whole_folder);renderChosen();syncWhole();
- $('#library-save').textContent=lib?'Save changes':'Add library';$('#library-cancel').hidden=!lib;
+ $('#library-save').textContent=lib?'Save changes':'Add collection';$('#library-cancel').hidden=!lib;
  $('#library-name').focus();}
 function syncWhole(){const whole=$('#library-whole').checked;$('#library-add-folder').disabled=whole;$('#library-chosen').classList.toggle('muted',whole);$('#library-whole-warning').hidden=!whole;}
 
@@ -97,9 +98,9 @@ async function loadPicker(path){
  if(data.truncated)list.append(node('p','Only the first 2,000 folders are shown.','small muted'));}
 function openPicker(){loadPicker('').then(()=>$('#folder-picker').showModal()).catch(e=>toast(e.message));}
 async function deleteLibrary(lib){
- if(!confirm('Delete the library "'+lib.name+'"?\n\nYour files are never deleted; they just stop showing on the list pages unless another library has their folder.'))return;
+ if(!confirm('Delete the collection "'+lib.name+'"?\n\nYour files are never deleted; they just stop showing on the list pages unless another collection has their folder.'))return;
  try{await api('/libraries/'+encodeURIComponent(lib.id),undefined,'DELETE');if(libraryEditing===lib.id)editLibrary(null);
-  await afterLibraryChange();toast('Deleted the library "'+lib.name+'". No files were touched.');}catch(e){toast(e.message);}}
+  await afterLibraryChange();toast('Deleted the collection "'+lib.name+'". No files were touched.');}catch(e){toast(e.message);}}
 async function afterLibraryChange(){await loadLibraries();settingsLoaded=false;await refresh();reloadForLibrary();}
 
 function initLibraryUi(){
@@ -113,7 +114,7 @@ function initLibraryUi(){
   const r=libraryBody($('#library-name').value,$('#library-folders').value,$('#library-whole').checked);
   if(r.error){toast(r.error);return;}
   try{const saved=libraryEditing?await api('/libraries/'+encodeURIComponent(libraryEditing),r.body,'PUT'):await api('/libraries',r.body);
-   editLibrary(null);await afterLibraryChange();toast('Saved the library "'+saved.name+'".');}catch(error){toast(error.message);}};
+   editLibrary(null);await afterLibraryChange();toast('Saved the collection "'+saved.name+'".');}catch(error){toast(error.message);}};
  for(const select of document.querySelectorAll('.library-select'))select.onchange=()=>chooseLibrary(select.value);
  renderChosen();syncWhole();}
 if(typeof document!=='undefined'&&document.getElementById('library-form')){initLibraryUi();

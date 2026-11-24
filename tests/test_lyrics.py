@@ -278,7 +278,9 @@ def test_every_menu_item_has_its_own_section():
     views = set(re.findall(r'<nav>.*?</nav>', html, re.S)[0].split('data-view="')[1:])
     views = {v.split('"')[0] for v in views}
     sections = re.findall(r'<section id="([a-z]+)" class="view"', html)
-    assert 'music' in views and views <= set(sections) and len(sections) == len(set(sections))
+    # 0.13.0: songs are on the Library page (no separate Song lyrics page), 8 entries in all.
+    assert 'library' in views and 'music' not in views and len(views) == 8
+    assert views <= set(sections) and len(sections) == len(set(sections))
     assert html.count('<section') == html.count('</section>')
 
 

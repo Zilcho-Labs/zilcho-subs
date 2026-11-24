@@ -25,6 +25,11 @@ def test_counts_and_ratings():
         ['Excellent', 'Excellent', 'Good', 'Good', 'Fair', 'Poor', 'Not recorded']
 
 
+def test_rating_boundaries_and_zero():
+    assert [rating(x) for x in (0.0, 1.0, 0.8499, 0.85, 0.8999, 0.9, 0.9499, 0.95)] == \
+        ['Poor', 'Excellent', 'Poor', 'Fair', 'Fair', 'Good', 'Good', 'Excellent']
+
+
 def word(text, p): return N(word=text, probability=p, start=0, end=1)
 
 
@@ -104,3 +109,17 @@ def test_older_jobs_get_counts_without_confidence(client):
     assert store.quality([old])[old]['en']['words'] == 7  # counted once, saved in app data
     assert c.post(f'/api/jobs/{old}/remove').status_code == 200 and store.quality([old]) == {}
     assert c.get('/api/jobs/nope/quality').status_code == 404
+
+
+def test_zero_score_stays_zero_and_missing_stays_none(client):
+    c, store, root = client
+    (root / 'a.en.AI.srt').write_text(SRT, encoding='utf-8')
+    (root / 'b.en.AI.srt').write_text(SRT, encoding='utf-8')
+    scored = store.enqueue('subtitle', {'path': 'a.mkv'}); store.claim()
+    store.update(scored, status='completed', outputs={'en': 'a.en.AI.srt'})
+    store.record_quality(scored, 'en', 'a.en.AI.srt', 7, 2, confidence=0.0)
+    legacy = store.enqueue('subtitle', {'path': 'b.mkv'}); store.claim()  # no saved score, like a legacy or SRT-only job
+    store.update(legacy, status='completed', outputs={'en': 'b.en.AI.srt'})
+    jobs = {j['id']: j['files'][0] for j in c.get('/api/quality').json()['jobs']}
+    assert (jobs[scored]['confidence'], jobs[scored]['status']) == (0.0, 'Poor')
+    assert (jobs[legacy]['confidence'], jobs[legacy]['status']) == (None, 'Not recorded')

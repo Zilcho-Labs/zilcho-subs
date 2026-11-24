@@ -11,6 +11,37 @@ class TextEngine:
     def translate(self,text,source,target): return 'Translated '+text
     def speech(self,*args): raise AssertionError('Text translation must never run speech inference')
 
+def fake_pack(config,src,dst,to_name=None):
+    import json
+    folder=config/'packages'/f'{src}_{dst}'; folder.mkdir(parents=True,exist_ok=True)
+    meta={'from_code':src,'to_code':dst,'from_name':src,'to_name':to_name or dst}
+    (folder/'metadata.json').write_text(json.dumps(meta),encoding='utf-8')
+
+def test_reachable_targets_direct_chained_none(tmp_path):
+    from zilcho_subs.pipeline import installed_packs, reachable_targets, targets_by_source
+    fake_pack(tmp_path,'ja','en'); fake_pack(tmp_path,'en','es','Spanish'); fake_pack(tmp_path,'en','xx','Klingon')
+    packs=installed_packs(tmp_path)
+    assert reachable_targets(packs,'en')==['es','xx']
+    assert reachable_targets(packs,'ja')==['en','es','xx']
+    assert reachable_targets(packs,'ko')==[]
+    names=targets_by_source(packs,{'en':'English','es':'Spanish'})
+    assert {'code':'xx','name':'Klingon'} in names['ja'] and {'code':'en','name':'English'} in names['ja']
+    assert 'ko' not in names and 'es' not in names
+
+def test_subtitles_validate_targets_on_server(tmp_path):
+    media=tmp_path/'media'; media.mkdir()
+    app=create_app(tmp_path/'config',media,'test-password-123',run_workers=False)
+    with TestClient(app) as client:
+        client.headers['Origin']='http://testserver'
+        client.post('/api/login',json={'password':'test-password-123'})
+        fake_pack(app.state.store.config,'en','es','Spanish')
+        state=client.get('/api/state').json()
+        assert state['targets_by_source']['en']==[{'code':'es','name':'Spanish'}]
+        for target in ['fr','en','E!']:
+            assert client.post('/api/subtitles',json={'text':SRT,'filename':'a.srt','source':'en','targets':[target]}).status_code==400
+        assert client.post('/api/subtitles',json={'text':SRT,'filename':'a.srt','source':'ja','targets':['es']}).status_code==400
+        assert client.post('/api/subtitles',json={'text':SRT,'filename':'a.srt','source':'en','targets':['es']}).status_code==200
+
 def test_timestamps_overlap_and_plain_text():
     source=SRT.replace('Hello world.','<i>Hello world.</i>')
     result=translate_document(source,'en',['es'],TextEngine())['es']
@@ -32,6 +63,7 @@ def test_upload_pick_download_and_edit(tmp_path):
         for body in [{'text':SRT,'source':'auto'},{'source_path':'../secret.srt','source':'en'},{'text':SRT,'source_path':source.name,'source':'en'},{'text':'bad','source':'en'}]:
             assert client.post('/api/subtitles',json=body).status_code==400
         store=app.state.store
+        fake_pack(store.config,'en','es','Spanish')
         for body,attached in [({'text':SRT,'filename':'hello.en.srt','source':'en','targets':['es']},False),({'source_path':source.name,'source':'en','targets':['es']},True)]:
             response=client.post('/api/subtitles',json=body)
             assert response.status_code==200,response.text

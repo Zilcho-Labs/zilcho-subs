@@ -33,14 +33,14 @@ class Library(BaseModel):
     @field_validator("id")
     @classmethod
     def id_valid(cls, value):
-        if value and not re.fullmatch(r"[a-z0-9-]{1,32}", value): raise ValueError("Invalid library id")
+        if value and not re.fullmatch(r"[a-z0-9-]{1,32}", value): raise ValueError("Invalid collection id")
         return value
 
     @field_validator("name")
     @classmethod
     def name_valid(cls, value):
         value = " ".join(value.split())
-        if not value: raise ValueError("Give the library a name")
+        if not value: raise ValueError("Give the collection a name")
         return value
 
     @field_validator("folders")
@@ -108,8 +108,8 @@ class Settings(BaseModel):
         for library in self.libraries:
             if not library.id:
                 library.id = uuid.uuid4().hex[:8]
-            if library.id in ids: raise ValueError("Library ids must be unique")
-            if library.name.casefold() in names: raise ValueError("Library names must be unique")
+            if library.id in ids: raise ValueError("Collection ids must be unique")
+            if library.name.casefold() in names: raise ValueError("Collection names must be unique")
             ids.add(library.id); names.add(library.name.casefold())
         self.scan_dirs = list(dict.fromkeys(f for library in self.libraries for f in library.folders))
         return self
@@ -206,6 +206,8 @@ class Store:
                 stable REAL NOT NULL, checked REAL NOT NULL, state TEXT NOT NULL, missing TEXT NOT NULL DEFAULT '[]',
                 found TEXT NOT NULL DEFAULT '[]', job_id TEXT NOT NULL DEFAULT '', signature TEXT NOT NULL DEFAULT '');
               CREATE INDEX IF NOT EXISTS audit_state ON audit(state);
+              CREATE TABLE IF NOT EXISTS embedded(path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL,
+                result TEXT NOT NULL, checked REAL NOT NULL);
               CREATE TABLE IF NOT EXISTS monitor_state(key TEXT PRIMARY KEY, value TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS quality(job_id TEXT NOT NULL, language TEXT NOT NULL, path TEXT NOT NULL,
                 words INTEGER NOT NULL, segments INTEGER NOT NULL, confidence REAL, updated REAL NOT NULL, PRIMARY KEY(job_id,language));

@@ -18,7 +18,7 @@ import threading
 import time
 from pathlib import Path
 from .core import ACTIVE, ALIASES, AUDIO, VIDEO, allowed_hour, in_folders, library_folders, media_path
-from . import jellyfin, mediaserver
+from . import embedded, jellyfin, mediaserver
 
 SUBTITLE_SUFFIXES = (".srt", ".ass", ".ssa", ".vtt", ".sub")
 KINDS = ("video", "song")
@@ -77,15 +77,20 @@ def lyric_files(stem, names):
     return sorted(n for n in names if n in wanted or (n.startswith(stem + ".AI.") and n.lower().endswith((".lrc", ".txt"))))
 
 
-def check(path, names, settings):
-    """What's there and what's missing for one file. Reads names only (no ffprobe)."""
+def check(path, names, settings, inside=None):
+    """What's there and what's missing for one file. Reads names only (no ffprobe).
+
+    inside: what's embedded in the file (zilcho_subs.embedded.check), or None. Embedded
+    subtitle tracks count only with skip_existing on (like the pipeline); embedded
+    lyrics always count. A failed look counts as nothing inside."""
     kind = kind_of(path)
     if kind == "video":
         present = subtitle_languages(path.parent, path.stem, names, own_only=not settings.skip_existing)
-        missing = [t for t in settings.target_languages if t not in present]
+        have = set(present) | (embedded.languages(inside) if settings.skip_existing else set())
+        missing = [t for t in settings.target_languages if t not in have]
         return kind, missing, sorted(set(present.values()))
     found = lyric_files(path.stem, names)
-    return kind, ([] if found else ["lyrics"]), found
+    return kind, ([] if found or embedded.has_lyrics(inside) else ["lyrics"]), found
 
 
 def _get(store, key, default=None):
@@ -142,7 +147,8 @@ def audit_file(store, root, path, names, settings, now, generate=(), retry=False
             if now - stable < settings.stable_seconds and not skip_wait:
                 db.execute("UPDATE audit SET checked=?,state='waiting' WHERE path=?", (now, relative))
                 return None
-    kind, missing, found = check(path, names, settings)
+    # One light ffprobe per new or changed file (the answer is kept in app data).
+    kind, missing, found = check(path, names, settings, embedded.check(store, root, relative))
     status = _job_status(store, job_id)
     wanted = signature(settings, kind)
     queued = None
@@ -228,7 +234,7 @@ def audit_path(store, root, relative, generate=(), now=None):
     path = media_path(root, relative, file=True, kinds=VIDEO | AUDIO)
     settings = store.settings()
     if not in_folders(path.relative_to(Path(root).resolve()).as_posix(), settings.scan_dirs):
-        raise ValueError("That file is not in a library")
+        raise ValueError("That file is not in a collection")
     names = sorted(os.listdir(path.parent))
     queued = audit_file(store, root, path, names, settings, time.time() if now is None else now, generate, retry=True, skip_wait=True)
     return {"queued": [queued] if queued else [], "item": item(store, path.relative_to(Path(root).resolve()).as_posix())}

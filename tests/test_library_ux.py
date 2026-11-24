@@ -54,9 +54,11 @@ def test_media_library_shows_subtitle_status(setup):
     data = c.get('/api/browse?path=tv/Show').json()
     assert data['targets'] == ['en', 'es']
     status = {e['name']: e.get('status') for e in data['entries']}
-    assert status['Cat.mkv'] == {'subs': ['en', 'es'], 'missing': []}
-    assert status['Core.mkv'] == {'subs': [], 'missing': ['en', 'es']}     # forced doesn't count
-    assert status['Dog.mkv'] == {'subs': ['en'], 'missing': ['es']}
+    pick = lambda s: {k: s[k] for k in ('subs', 'missing')}
+    assert pick(status['Cat.mkv']) == {'subs': ['en', 'es'], 'missing': []}
+    assert pick(status['Core.mkv']) == {'subs': [], 'missing': ['en', 'es']}     # forced doesn't count
+    assert pick(status['Dog.mkv']) == {'subs': ['en'], 'missing': ['es']}
+    assert status['Dog.mkv']['source'] == 'unchecked' and status['Dog.mkv']['external'] == ['en']   # nothing probed while browsing
     assert status['Cat.en.srt'] is None                                    # subtitle files have no status
 
 
@@ -65,9 +67,10 @@ def test_song_lyrics_shows_lyric_and_enhanced_status(setup):
     status = {e['name']: e['status'] for e in c.get('/api/music/browse?path=music/Album').json()['entries']}
     assert status['Plain.mp3']['lyrics'] and not status['Plain.mp3']['enhanced']
     assert status['Karaoke.mp3']['enhanced']                                # word times inside Song.lrc
-    assert status['Words.flac'] == {'lyrics': True, 'enhanced': True, 'files': ['Words.txt', 'Words.words.lrc']}
-    assert status['Nothing.mp3'] == {'lyrics': False, 'enhanced': False, 'files': []}
-    assert song_status(root / 'music' / 'Album', 'Missing', []) == {'lyrics': False, 'enhanced': False, 'files': []}
+    pick = lambda s: {k: s[k] for k in ('lyrics', 'enhanced', 'files')}
+    assert pick(status['Words.flac']) == {'lyrics': True, 'enhanced': True, 'files': ['Words.txt', 'Words.words.lrc']}
+    assert pick(status['Nothing.mp3']) == {'lyrics': False, 'enhanced': False, 'files': []}
+    assert pick(song_status(root / 'music' / 'Album', 'Missing', [])) == {'lyrics': False, 'enhanced': False, 'files': []}
 
 
 def test_queue_selected_videos_and_songs(setup):
@@ -102,7 +105,7 @@ def test_monitor_search_filter_pages_and_queue_selected(setup):
     assert names(get(missing='lyrics')) == ['Nothing.mp3']
     assert c.get('/api/state/audit', params={'missing': 'e%'}).status_code == 400
     cat = next(i for i in every['items'] if i['path'].endswith('Cat.mkv'))
-    assert cat['status'] == {'subs': ['en', 'es'], 'missing': []}
+    assert {k: cat['status'][k] for k in ('subs', 'missing')} == {'subs': ['en', 'es'], 'missing': []}
     karaoke = next(i for i in every['items'] if i['path'].endswith('Karaoke.mp3'))
     assert karaoke['status']['lyrics'] and karaoke['status']['enhanced']
     # Pages and sorting

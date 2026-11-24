@@ -1,8 +1,21 @@
-# Monitor library
+# Library status (the monitor)
 
-Monitor library checks your media folder for videos that have no subtitles and
+The **Library status** page has three views: **Coverage** (opens first: how
+much of the library you picked has subtitles in each language and lyrics, with a
+"Generate missing ..." button on each row that says how many files it will
+queue), **File results** (what the last check found, Scan now, the Make
+buttons and a **Retry N failed files** button beside the Show filter, hidden
+when nothing failed) and **Watching** (start or stop watching, and the
+processing hours and other settings). The library dropdown at the top applies to
+all three, and to **Library** and **Queue > Completed** too; it is remembered
+between visits.
+
+The monitor checks your media folder for videos that have no subtitles and
 songs that have no lyrics. It lists what it found and queues the missing ones,
-either when you press a button or by itself while watching is on.
+either when you press a button or by itself while watching is on. **Make
+missing subtitles** and **Make missing lyrics** follow the collection you picked
+(every collection when it says "all collections"); **Scan now** only reads, and
+always looks at every collection.
 
 Everything happens on your own machine. Nothing is uploaded.
 
@@ -12,16 +25,18 @@ Everything happens on your own machine. Nothing is uploaded.
    `/mnt/user/data/media` on the server, which the app sees as `/media`. The
    monitor can only see what's inside that mapping.
 2. **Download a speech model** in *Speech models* (the one chosen in Settings).
-3. Open **Monitor library** and, under *Monitor settings*, list the folders to
-   watch, one per line, relative to the media folder (for example `tv`,
-   `anime`, `music`). Leave it empty to watch the whole media folder.
-4. Press **Scan now**. It only looks; nothing is queued yet. Check the list.
+3. Open **Settings** and, under *Collections*, add a collection for each group of
+   folders to watch (for example TV, Movies, Music). Folders are chosen by
+   browsing the media folder.
+4. Open **Library status → File results** and press **Scan now**. It only
+   looks; nothing is queued yet. Check the list.
 5. Press **Make missing subtitles** (and **Make missing lyrics** for songs), or
    tick **Watch the library** so new files are handled by themselves.
 
 ## Settings
 
-All of these are on the Monitor library page.
+These are on the **Library status → Watching** view (the folders are the
+collections in **Settings**).
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -61,7 +76,7 @@ so on) let each file be tried once more with the new settings.
   `monitor_state`, plus `monitor-cursor.json`). Nothing is written to the
   media folder by the check itself, so it works with a read-only container.
 - Missing files are queued as ordinary jobs in the normal queue, exactly as if
-  you'd queued them from *Media library* or *Song lyrics*. One job runs at a
+  you'd queued them from *Library*. One job runs at a
   time; you can pause, reorder, cancel and retry them as usual.
 - The monitor never sets *Regenerate*, so a job it queues can't replace or add a
   new version of a file that's already there. The job checks again just before
@@ -76,7 +91,7 @@ so on) let each file be tried once more with the new settings.
 ## The status card
 
 The card at the bottom of the sidebar is visible on every page. It's the app's
-"tray icon": you don't have to open Monitor library to know what's going on.
+"tray icon": you don't have to open Library status to know what's going on.
 
 The top line is the monitor's state:
 
@@ -98,7 +113,7 @@ Hover over the card to see when the last *full* check finished.
 While there are results you haven't dismissed, the browser tab's title starts
 with their number, for example `(4) Zilcho Subs`.
 
-Click the card to open Monitor library. A red edge means something failed.
+Click the card to open Library status. A red edge means something failed.
 
 The numbers live in the app data (`monitor_state` in `queue.sqlite3`), so they
 survive a restart. The page asks for them every 3 seconds while it's open.
@@ -114,7 +129,7 @@ If you set it up, Zilcho Subs tells Jellyfin about new files straight away.
 ### Setup
 
 1. In Jellyfin, open **Dashboard → API Keys** and add a key named `Zilcho Subs`.
-2. In Zilcho Subs, open **Monitor library → Jellyfin (optional)** and fill in:
+2. In Zilcho Subs, open **Settings → Media servers → Jellyfin** and fill in:
    - **Jellyfin address**: how this container reaches Jellyfin, for example
      `http://192.168.1.10:8096` (the server's address and Jellyfin's port).
    - **API key**: the key from step 1.
@@ -165,7 +180,7 @@ translation* that were saved in the app data instead of the library.
 ## Emby and Plex (optional)
 
 They work the same way as the Jellyfin link, and each is set up on its own on
-the Monitor page under **Media servers (optional)**. Use any of the three, all
+in **Settings** under **Media servers (optional)**. Use any of the three, all
 of them, or none. Left empty (the default), nothing is sent anywhere. The
 subtitle and lyric files are written next to your media either way; these links
 only ask the server to look at that folder now instead of at its next
@@ -231,8 +246,13 @@ All need a signed-in session, like the rest of the API.
   `paths=true` returns just the paths that can be queued (missing or failed),
   for Select all. Each item has a `status`: `{"subs": [...], "missing": [...]}`
   for videos, `{"lyrics", "enhanced", "files"}` for songs.
-- Media library and Song lyrics: `GET /api/browse` and `GET /api/music/browse`
-  entries have the same `status`; `POST /api/jobs/batch` with `{"paths",
+- Library page: `GET /api/browse` (videos and `.srt` files) and `GET /api/music/browse`
+  (songs) are merged by the page; their entries have the same `status`.
+  `GET /api/library/search?q=&kind=video|song&library=&limit=&offset=` searches
+  file names across the whole library (read-only; best match first, same fuzzy
+  rules as above; up to 100,000 files walked, name list kept for 60 seconds;
+  unknown `library` is 404) and returns the same entries with `kind` and `folder`.
+  `limit` is at most 1,000; `POST /api/jobs/batch` with `{"paths",
   "audio_stream", "regenerate"}` and `POST /api/lyrics/batch` with `{"paths",
   "regenerate"}` queue many files (one normal job each).
   The summary includes `status`, `missing`, `pending_jobs`, `in_queue`,

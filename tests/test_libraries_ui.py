@@ -20,7 +20,7 @@ from zilcho_subs.app import create_app
 STATIC = Path(__file__).resolve().parent.parent / 'zilcho_subs' / 'static'
 PASSWORD = 'test-password-123'
 NODE = shutil.which('node')
-WARNING = 'Searching this library scans the entire folder.'
+WARNING = 'Searching this collection scans the entire folder.'
 
 
 def text(name): return (STATIC / name).read_text(encoding='utf-8')
@@ -38,7 +38,7 @@ def test_page_loads_the_library_script_before_the_pages_that_use_it():
     assert html.index('/static/libraries.js') < html.index('/static/monitor.js')
 
 
-@pytest.mark.parametrize('name', ['library', 'music', 'monitor', 'quality', 'coverage'])
+@pytest.mark.parametrize('name', ['library', 'monitor', 'queue'])   # queue: Completed holds the quality list
 def test_each_list_page_has_a_library_dropdown(name):
     assert 'class="library-select"' in view(text('index.html'), name)
 
@@ -53,23 +53,74 @@ def test_manager_has_name_folders_whole_folder_and_the_warning():
 def test_monitor_folder_box_is_replaced_by_the_manager():
     assert 'id="scan-dirs"' not in text('index.html')
     assert 'scan-dirs' not in text('monitor.js')
-    assert 'id="library-form"' in view(text('index.html'), 'monitor')
+    assert 'id="library-form"' in view(text('index.html'), 'settings')     # 0.13.0: the manager is in Settings
+    assert 'id="media-servers"' in view(text('index.html'), 'settings')
 
 
 def test_every_page_asks_the_server_for_the_chosen_library():
-    app, ly, mon, cov, qual = (text(n) for n in ('app.js', 'lyrics.js', 'monitor.js', 'coverage.js', 'quality.js'))
-    assert "withLibrary('/browse?" in app
-    assert "withLibrary('/music/browse?" in ly
-    assert 'libraryParam()' in mon                       # Monitor list and sidebar card
+    app, lib, mon, cov, qual = (text(n) for n in ('app.js', 'library.js', 'monitor.js', 'coverage.js', 'quality.js'))
+    assert "get('/browse')" in lib and "get('/music/browse')" in lib and 'withLibrary(kind+' in lib   # Library: both listings
+    assert "withLibrary('/library/search?" in lib                                                  # Library: search
+    assert 'libraryParam()' in mon                       # File results list and sidebar card
     assert "withLibrary('/state/audit?items=false')" in mon
+    assert "withLibrary('/state/audit?kind='" in mon and "withLibrary('/state/audit?state=failed&paths=true')" in mon
     assert "withLibrary('/coverage" in cov and "withLibrary('/coverage/generate')" in cov
     assert "withLibrary('/quality?" in qual
     assert 'method' in re.search(r'async function api\(.*', app).group(0)    # PUT and DELETE for the manager
 
 
 def test_pages_say_so_when_there_are_no_libraries():
-    assert 'noLibraries()' in text('app.js') and 'noLibraries()' in text('lyrics.js')
-    assert 'No libraries yet' in text('libraries.js')
+    assert 'noLibraries()' in text('library.js')
+    assert 'No collections yet' in text('libraries.js')
+
+
+# ----- 1.5.0: libraries are called Collections on screen; names, ids, API and storage stay -----
+
+@pytest.mark.parametrize('name', ['library', 'monitor', 'queue'])
+def test_selectors_are_labelled_collection(name):
+    section = view(text('index.html'), name)
+    assert 'library-pick">Collection<select class="library-select" aria-label="Collection"' in section
+
+
+def test_settings_section_is_collections_and_page_names_stay():
+    html = text('index.html')
+    settings = view(html, 'settings')
+    assert '<h2>Collections</h2>' in settings and 'Add collection</button>' in settings and '<h2>Libraries</h2>' not in settings
+    assert '<button data-view="library">Library</button>' in html and '<button data-view="monitor">Library status</button>' in html
+    assert 'data-library-kind="video"' in html and 'data-library-kind="song"' in html      # All / Videos / Songs stay
+    assert "library:'Your library'" in text('app.js')
+
+
+def test_all_collections_option_and_starter_label():
+    js = text('libraries.js')
+    assert "'All collections'" in js and 'All libraries' not in js
+    assert "'Everything (main folder)'" in js and "'/libraries'" in js and "'library='" in js
+    out = run_node("""
+      const libs = [{id: 'default', name: 'Library', folders: [''], whole_folder: true}, {id: 'a', name: 'TV Shows', folders: ['tv'], whole_folder: false}];
+      console.log(JSON.stringify([L.libraryLabel(libs[0]), L.libraryLabel(libs[1])]))""")
+    assert out == ['Everything (main folder)', 'TV Shows']
+
+
+def test_upgrade_keeps_saved_collections_and_scoping(env):
+    """Settings saved by an older version (starter library plus two named ones) load unchanged."""
+    c, root, store = env
+    saved = store.settings().model_dump()
+    saved['libraries'] = [
+        {'id': 'default', 'name': 'Library', 'folders': [''], 'whole_folder': True},
+        {'id': 'tv1', 'name': 'TV', 'folders': ['tv'], 'whole_folder': False},
+        {'id': 'mv1', 'name': 'Movies', 'folders': ['movies'], 'whole_folder': False}]
+    saved['scan_dirs'] = ['', 'tv', 'movies']  # older saves keep scan_dirs as the union of the collections' folders
+    store.save_settings(type(store.settings()).model_validate(saved))
+    libs = c.get('/api/libraries').json()['libraries']
+    assert [(l['id'], l['name'], l['folders']) for l in libs] == [
+        ('default', 'Library', ['']), ('tv1', 'TV', ['tv']), ('mv1', 'Movies', ['movies'])]
+    top = {e['name'] for e in c.get('/api/browse', params={'library': 'tv1'}).json()['entries']}
+    assert top == {'tv'}  # from the top, the collection's own folder is the way in
+    tv = {e['name'] for e in c.get('/api/browse', params={'library': 'tv1', 'path': 'tv'}).json()['entries']}
+    assert tv == {'A.mkv'}
+    found = c.get('/api/library/search', params={'q': 'mkv', 'library': 'mv1'}).json()
+    assert {e['path'] for e in found['entries']} == {'movies/B.mkv'}
+    assert c.get('/api/browse', params={'library': 'nope'}).status_code == 404
 
 
 def test_deleting_a_library_asks_first_and_says_files_are_kept():

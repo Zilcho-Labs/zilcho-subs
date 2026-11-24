@@ -14,12 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from . import __version__
 from .core import ALIASES, AUDIO, Store, Settings, Library, MODELS, LANGUAGES, VIDEO, in_folders, leads_to_folders, library_folders, media_path, safe_relative, settings_with_libraries, validate_srt, write_sidecar
-from .pipeline import model_ready, installed_packs
+from .pipeline import model_ready, installed_packs, reachable_targets, targets_by_source
 from .sounds import sound_model_ready
 from .denoise import model_ready as cleanup_model_ready
 from .runner import Runner
 from . import monitor as library
-from . import jellyfin, mediaserver
+from . import embedded, jellyfin, mediaserver, library_search
 from . import status as file_status
 
 class QueueMove(BaseModel): direction: str = Field(pattern="^(up|down|top|bottom)$")
@@ -61,6 +61,9 @@ class QueueBatch(BaseModel):
     paths: list[str] = Field(min_length=1,max_length=5000)
     audio_stream: int | None = Field(default=None,ge=0,le=1024)
     regenerate: bool = False
+class EmbeddedCheck(BaseModel):
+    paths: list[str] = Field(min_length=1,max_length=5000)   # only the first 100 are looked at
+    force: bool = False                                      # Retry: look again even if a failed answer is saved
 class AuditBatch(BaseModel):
     paths: list[str] = Field(min_length=1,max_length=5000)
 class JellyfinLink(BaseModel):
@@ -148,12 +151,12 @@ def create_app(config=None,media=None,password=None,run_workers=True):
         response=JSONResponse({'ok':True}); response.delete_cookie('zilcho_session'); return response
     @app.get('/api/state')
     def state():
-        catalog=store.config/'catalog.json'
+        catalog=store.config/'catalog.json'; packs=installed_packs(store.config)
         return {'version':__version__,'settings':store.settings().model_dump(),'jobs':store.jobs(),'archived_count':store.archived_count(),
             'models':[{'name':m,'installed':model_ready(store.config,m)} for m in MODELS],
             'sound_model':sound_model_ready(store.config),
             'cleanup_model':cleanup_model_ready(store.config),
-            'packs':installed_packs(store.config),'catalog':json.loads(catalog.read_text(encoding='utf-8')) if catalog.exists() else [],
+            'packs':packs,'targets_by_source':targets_by_source(packs,LANGUAGES),'catalog':json.loads(catalog.read_text(encoding='utf-8')) if catalog.exists() else [],
             'languages':LANGUAGES,'media_root':str(root),'media_available':root.is_dir(),'config_root':str(store.config),
             'ffmpeg':bool(shutil.which('ffmpeg') and shutil.which('ffprobe'))}
     @app.post('/api/settings')
@@ -226,11 +229,13 @@ def create_app(config=None,media=None,password=None,run_workers=True):
             result.update(total=len(picked),paths=picked)
         elif items:
             total,rows=library.items(store,state or None,kind or None,0 if limit<=0 else min(limit,10000),max(0,offset),q[:200],missing or None,sort,folders)
-            for row in rows: row['status']=audit_status(row)
+            inside=embedded.lookup(store,root,[r['path'] for r in rows])   # saved answers only
+            skip=store.settings().skip_existing
+            for row in rows: row['status']=audit_status(row,inside.get(row['path']),skip)
             result.update(total=total,items=rows)
         return result
-    def audit_status(row):
-        # What's next to the file, from the names the last check saw.
+    def audit_status(row,inside=None,skip=True):
+        # What's next to the file, from the names the last check saw, plus what's inside it (if known).
         stem=Path(row['path']).stem
         if row['kind']=='video':
             langs=set()
@@ -238,8 +243,10 @@ def create_app(config=None,media=None,password=None,run_workers=True):
                 if name.startswith(stem+'.'):
                     tag=name[len(stem)+1:].split('.')[0].split('-')[0]
                     langs.add(ALIASES.get(tag.lower(),tag))
-            return {'subs':sorted(langs),'missing':row['missing']}
-        return file_status.song_status((root/row['path']).parent,stem,row['found'])
+            status=file_status.video_status_from(sorted(langs),[],inside,skip)
+            # The audit decided what's missing (it knows the settings it ran with).
+            return {**status,'subs':sorted(langs|(embedded.languages(inside) if skip else set())),'missing':row['missing']}
+        return file_status.song_status((root/row['path']).parent,stem,row['found'],inside)
     @app.post('/api/audit/batch')
     def audit_batch(data:AuditBatch):
         # Queue selected: the same as pressing each file's own Make button.
@@ -281,20 +288,46 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     @app.get('/api/browse')
     def browse(path:str='',lib:str=Query('',alias='library')):
         folders=visible_folders(lib); path=path.strip('/')
-        if not leads_to_folders(path,folders): raise ValueError('That folder is not in a library')
+        if not leads_to_folders(path,folders): raise ValueError('That folder is not in a collection')
         folder=media_path(root,path)
         if not folder.is_dir(): raise ValueError('Folder not found')
         listing=sorted(folder.iterdir(),key=lambda p:(not p.is_dir(),p.name.casefold())); names=[p.name for p in listing]
-        targets=store.settings().target_languages; entries=[]; truncated=False
+        settings=store.settings(); targets=settings.target_languages; entries=[]; truncated=False; videos=[]
         for i,p in enumerate(listing):
             if i>=5000: truncated=True; break
             if p.is_symlink() or p.name.startswith('.'): continue
             if not (leads_to_folders if p.is_dir() else in_folders)(p.relative_to(root).as_posix(),folders): continue
             if p.is_dir() or p.suffix.lower() in VIDEO or p.suffix.lower()=='.srt':
                 entry={'path':p.relative_to(root).as_posix(),'name':p.name,'directory':p.is_dir(),'subtitle':p.suffix.lower()=='.srt','bytes':p.stat().st_size if p.is_file() else 0}
-                if p.is_file() and p.suffix.lower() in VIDEO: entry['status']=file_status.video_status(folder,p.stem,names,targets)
+                if p.is_file() and p.suffix.lower() in VIDEO: videos.append((entry,p))
                 entries.append(entry)
+        # What's inside each video comes from saved answers only (nothing is probed while browsing);
+        # the page asks POST /api/embedded/check for the files still unchecked.
+        inside=embedded.lookup(store,root,[e['path'] for e,_p in videos])
+        for entry,p in videos: entry['status']=file_status.video_status(folder,p.stem,names,targets,inside.get(entry['path']),settings.skip_existing)
         return {'path':path,'entries':entries,'truncated':truncated,'targets':targets}
+    @app.post('/api/embedded/check')
+    def embedded_check(data:EmbeddedCheck,lib:str=Query('',alias='library')):
+        # Looks inside the files a page is showing (saved for next time). Only files in a collection.
+        folders=visible_folders(lib); settings=store.settings(); paths=[]
+        for path in list(dict.fromkeys(data.paths))[:embedded.MAX_PATHS]:
+            try: file=media_path(root,path,file=True,kinds=VIDEO|AUDIO)
+            except ValueError: continue   # gone or not a media file: skip it, check the rest
+            if in_folders(file.relative_to(Path(root).resolve()).as_posix(),folders): paths.append(path)
+        results=embedded.check_many(store,root,paths,data.force)
+        statuses={}
+        for path,result in results.items():
+            file=media_path(root,path,file=True,kinds=VIDEO|AUDIO); parent=file.parent; names=sorted(os.listdir(parent))
+            statuses[path]=file_status.video_status(parent,file.stem,names,settings.target_languages,result,settings.skip_existing) if file.suffix.lower() in VIDEO else file_status.song_status(parent,file.stem,names,result)
+        return {'statuses':statuses}
+    @app.post('/api/coverage/inside')
+    def coverage_inside(lib:str=Query('',alias='library')):
+        from . import coverage
+        return coverage.start_inside_check(store,root,lib or None)
+    @app.get('/api/coverage/inside')
+    def coverage_inside_progress():
+        from . import coverage
+        return coverage.inside_progress()
     @app.post('/api/subtitles')
     def translate_subtitles(data:TextRequest):
         import re
@@ -303,6 +336,10 @@ def create_app(config=None,media=None,password=None,run_workers=True):
         source=ALIASES.get(data.source.lower(),data.source.lower())
         if source=='auto' or not re.fullmatch('[a-z]{2,3}',source): raise ValueError('Choose the original subtitle language code')
         targets=Settings(target_languages=data.targets or store.settings().target_languages).target_languages
+        reachable=reachable_targets(installed_packs(store.config),source)
+        for t in targets:
+            if t==source: raise ValueError('Choose a target language different from the original')
+            if t not in reachable: raise ValueError(f'No installed route from {source} to {t}. Install it in Language packs')
         video=data.video_path
         if data.source_path is not None:
             path=media_path(root,data.source_path)
@@ -315,7 +352,10 @@ def create_app(config=None,media=None,password=None,run_workers=True):
                 if matches: video=max(matches,key=lambda p:len(p.stem)).relative_to(root).as_posix()
         else: text=data.text; name=data.filename
         parse_srt(text)
-        if video and media_path(root,video,file=True).suffix.lower() not in VIDEO: raise ValueError('Attach subtitles to a supported media file')
+        if video:
+            attach=media_path(root,video,file=True)
+            if attach.suffix.lower() not in VIDEO: raise ValueError('Attach subtitles to a supported media file')
+            if data.video_path and not in_folders(attach.relative_to(Path(root).resolve()).as_posix(),visible_folders('')): raise ValueError('Choose a video inside a collection')
         base=Path(name.replace(chr(92),'/').split('/')[-1]).stem
         bad_chars=set('<>:"/|?*')|{chr(92)}
         base=''.join('_' if c in bad_chars or ord(c)<32 else c for c in base).strip(' .')[:100] or 'subtitles'
@@ -381,11 +421,11 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     @app.get('/api/music/browse')
     def music_browse(path:str='',lib:str=Query('',alias='library')):
         folders=visible_folders(lib); path=path.strip('/')
-        if not leads_to_folders(path,folders): raise ValueError('That folder is not in a library')
+        if not leads_to_folders(path,folders): raise ValueError('That folder is not in a collection')
         folder=media_path(root,path)
         if not folder.is_dir(): raise ValueError('Folder not found')
         listing=sorted(folder.iterdir(),key=lambda p:(not p.is_dir(),p.name.casefold())); names=[p.name for p in listing]
-        targets=store.settings().target_languages; entries=[]; truncated=False
+        targets=store.settings().target_languages; entries=[]; truncated=False; songs=[]
         for i,p in enumerate(listing):
             if i>=5000: truncated=True; break
             if p.is_symlink() or p.name.startswith('.'): continue
@@ -393,9 +433,16 @@ def create_app(config=None,media=None,password=None,run_workers=True):
             if p.is_dir() or p.suffix.lower() in AUDIO:
                 entry={'path':p.relative_to(root).as_posix(),'name':p.name,'directory':p.is_dir(),
                     'lyrics':p.is_file() and p.with_name(p.stem+'.lrc').is_file()}
-                if p.is_file(): entry['status']=file_status.song_status(folder,p.stem,names)
+                if p.is_file(): songs.append((entry,p))
                 entries.append(entry)
+        inside=embedded.lookup(store,root,[e['path'] for e,_p in songs])   # saved answers only
+        for entry,p in songs: entry['status']=file_status.song_status(folder,p.stem,names,inside.get(entry['path']))
         return {'path':path,'entries':entries,'truncated':truncated}
+    @app.get('/api/library/search')
+    def library_file_search(q:str='',kind:str='',limit:int=200,offset:int=0,lib:str=Query('',alias='library')):
+        # The Library page's search box: file names across the whole chosen library (read-only).
+        visible_folders(lib)  # unknown library: 404
+        return library_search.search(store,root,q,kind,lib or None,limit,offset)
     @app.post('/api/lyrics')
     def make_lyrics(data:LyricsItem):
         media_path(root,data.path,file=True,kinds=AUDIO)
