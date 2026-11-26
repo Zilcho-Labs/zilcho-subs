@@ -55,6 +55,7 @@ function setQueueTab(tab){queueTab=tab;document.querySelectorAll('[data-queue-ta
 document.querySelectorAll('[data-queue-tab]').forEach(b=>b.onclick=()=>setQueueTab(b.dataset.queueTab));
 function chooseView(asked){const name=VIEW_ALIASES[asked]||asked,was=view;view=name;document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!==name);document.querySelectorAll('nav [data-view]').forEach(e=>e.classList.toggle('active',e.dataset.view===name));$('#page-title').textContent=titles[name];
  if(name==='library')browse().catch(e=>toast(e.message));
+ if(name==='settings')loadApiKey().catch(e=>toast(e.message));else if(was==='settings')$('#api-key-new').hidden=true,$('#api-key-value').value='';
  if(name==='queue'){if(asked==='quality')setQueueTab('completed');else if(queueTab==='completed')loadQuality(0);}
  // Library status opens on Coverage; the badge in the sidebar doesn't reset it while you are already there.
  if(name==='monitor'&&(asked==='coverage'||was!=='monitor'))setStatusTab('coverage');}
@@ -93,6 +94,12 @@ $('#settings-form').onsubmit=async e=>{e.preventDefault();const settings={...sta
 // ----- Shared helpers for the Library, Library status and Queue pages -----
 const langName=code=>state&&state.languages[code]?state.languages[code]+' ('+code+')':code;
 const byName=(a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'});
+// ----- API key for other apps -----
+function showApiKey(info,key){$('#api-key-state').textContent=info.exists?'A key is set up'+(info.created?', created '+new Date(info.created*1000).toLocaleDateString():'')+'. It cannot be shown again.':'No key yet.';$('#api-key-create').textContent=info.exists?'Replace key':'Create key';$('#api-key-remove').hidden=!info.exists;$('#api-key-new').hidden=!key;$('#api-key-value').value=key||'';}
+async function loadApiKey(){showApiKey(await api('/api-key'));}
+$('#api-key-create').onclick=async()=>{try{if($('#api-key-create').textContent==='Replace key'&&!confirm('Replace the key? Apps using the old key stop working until you give them the new one.'))return;const r=await api('/api-key',{});showApiKey(r,r.key);}catch(e){toast(e.message);}};
+$('#api-key-remove').onclick=async()=>{try{if(!confirm('Remove the key? Apps using it can no longer ask for subtitles.'))return;showApiKey(await api('/api-key',undefined,'DELETE'));}catch(e){toast(e.message);}};
+$('#api-key-copy').onclick=async()=>{$('#api-key-value').select();try{await navigator.clipboard.writeText($('#api-key-value').value);toast('Key copied.');}catch{toast('Select the key and copy it.');}};
 $('#catalog-refresh').onclick=async()=>{try{await api('/assets',{kind:'catalog'});toast('Catalog refresh queued.');await refresh();}catch(e){toast(e.message);}};$('#pack-filter').oninput=()=>state&&renderPacks();
 async function openEditor(id,language){const r=await fetch('/api/jobs/'+id+'/subtitles/'+encodeURIComponent(language),{credentials:'same-origin'});if(!r.ok)throw Error('Could not load subtitle preview');$('#subtitle-text').value=await r.text();editing={id,language};$('#editor').showModal();}
 $('#save-subtitle').onclick=async()=>{try{await api('/jobs/'+editing.id+'/subtitles/'+encodeURIComponent(editing.language),{text:$('#subtitle-text').value});$('#editor').close();toast('Saved a new subtitle version.');await refresh();}catch(e){toast(e.message);}};

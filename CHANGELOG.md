@@ -4,6 +4,17 @@ What changed in each version of Zilcho Subs, newest first. The version shown in
 the app's footer comes from `zilcho_subs/__init__.py`. How and when to raise it
 is in [VERSIONING.md](VERSIONING.md).
 
+## 0.16.0 (November 26, 2026)
+
+- **API key for other apps.** In Settings you can create a key that lets Zilcho
+  Forge ask for subtitles and follow their progress. It can do nothing else, is
+  shown only once, and can be replaced or removed.
+
+## 0.15.1 (November 26, 2026)
+
+- **New look.** The new metal ZL icon replaces the old film-strip logo, and
+  highlights are now teal to match it.
+
 ## 0.15.0 (November 22, 2026)
 
 - **Translate subtitles: Browse for the video.** **Attach to a video

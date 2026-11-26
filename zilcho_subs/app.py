@@ -19,7 +19,7 @@ from .sounds import sound_model_ready
 from .denoise import model_ready as cleanup_model_ready
 from .runner import Runner
 from . import monitor as library
-from . import embedded, jellyfin, mediaserver, library_search
+from . import embedded, external, jellyfin, mediaserver, library_search
 from . import status as file_status
 
 class QueueMove(BaseModel): direction: str = Field(pattern="^(up|down|top|bottom)$")
@@ -78,6 +78,9 @@ class CoverageGenerate(BaseModel):
 class JellyfinTest(BaseModel):
     url: str | None = Field(default=None,max_length=512)
     api_key: str = Field(default='',max_length=256)
+class ExternalRequest(BaseModel):
+    path: str = Field(max_length=2048)
+    languages: list[str] = Field(min_length=1,max_length=8)
 
 
 def create_app(config=None,media=None,password=None,run_workers=True):
@@ -88,7 +91,7 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     salt=secrets.token_bytes(32)
     derive=lambda value: hashlib.pbkdf2_hmac('sha256',value.encode(),salt,300000)
     password_hash=derive(password); del password
-    sessions={}; failures={}; auth_lock=threading.Lock(); runner=Runner(store,root); monitor=library.Monitor(store,root)
+    sessions={}; failures={}; key_failures={}; auth_lock=threading.Lock(); runner=Runner(store,root); monitor=library.Monitor(store,root)
     @asynccontextmanager
     async def lifespan(app):
         if run_workers: runner.start(); monitor.start()
@@ -97,8 +100,23 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     app=FastAPI(title='Zilcho Subs',version=__version__,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.store=store; app.state.runner=runner; app.state.monitor=monitor
     def authenticated(request): return sessions.get(request.cookies.get('zilcho_session',''),0)>time.time()
+    def key_refusal(request):
+        # None when the key is right; otherwise the answer. Wrong tries are limited per address.
+        ip=request.client.host if request.client else 'unknown'; now=time.time()
+        with auth_lock:
+            if len(key_failures)>1000: key_failures.clear()
+            recent=key_failures[ip]=[x for x in key_failures.get(ip,[]) if now-x<60]
+            if len(recent)>=5: return JSONResponse({'detail':'Too many attempts; wait a minute'},429)
+            if external.matches(store,request.headers.get('x-api-key','')): return None
+            recent.append(now)
+        return JSONResponse({'detail':'The API key was not accepted'},401)
     @app.middleware('http')
     async def guard(request,call_next):
+        # /api/external/ is for other apps: the API key replaces the sign-in and the page-origin rule.
+        keyed=request.url.path.startswith('/api/external/')
+        if keyed:
+            refused=key_refusal(request)
+            if refused: return refused
         if request.method not in ('GET','HEAD','OPTIONS'):
             length=request.headers.get('content-length')
             if length is None and request.method=='DELETE': length='0'  # browsers send no length for an empty DELETE
@@ -107,9 +125,9 @@ def create_app(config=None,media=None,password=None,run_workers=True):
             except ValueError: return JSONResponse({'detail':'Invalid Content-Length'},400)
             if not 0<=count<=2_100_000: return JSONResponse({'detail':'Request too large'},413)
             origin=str(request.base_url).rstrip('/')
-            if request.headers.get('origin')!=origin:
+            if not keyed and request.headers.get('origin')!=origin:
                 return JSONResponse({'detail':'Request must come from this web interface origin'},403)
-        if request.url.path.startswith('/api/') and request.url.path not in ('/api/login','/api/session','/api/health') and not authenticated(request):
+        if not keyed and request.url.path.startswith('/api/') and request.url.path not in ('/api/login','/api/session','/api/health') and not authenticated(request):
             return JSONResponse({'detail':'Sign in first'},401)
         response=await call_next(request)
         response.headers['X-Content-Type-Options']='nosniff'
@@ -149,6 +167,19 @@ def create_app(config=None,media=None,password=None,run_workers=True):
     def logout(request:Request):
         sessions.pop(request.cookies.get('zilcho_session',''),None)
         response=JSONResponse({'ok':True}); response.delete_cookie('zilcho_session'); return response
+    # ----- API key (managed while signed in) and what it allows -----
+    @app.get('/api/api-key')
+    def api_key_info(): return external.info(store)
+    @app.post('/api/api-key')
+    def api_key_create(): return {'key':external.create(store),**external.info(store)}
+    @app.delete('/api/api-key')
+    def api_key_remove(): external.remove(store); return external.info(store)
+    @app.get('/api/external/status')
+    def external_status(): return {'app':'Zilcho Subs','version':__version__}
+    @app.post('/api/external/subtitles')
+    def external_subtitles(data:ExternalRequest): return external.request_subtitles(store,root,data.path,data.languages)
+    @app.get('/api/external/jobs/{id}')
+    def external_job(id:str): return external.job_state(store,id)
     @app.get('/api/state')
     def state():
         catalog=store.config/'catalog.json'; packs=installed_packs(store.config)

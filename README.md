@@ -63,6 +63,10 @@ Don't expose the web UI directly to the internet. Use your private network or an
 
 App data (`/config`) holds settings, the job queue, models, translation packs, logs and caches. Clearing old caches and logs is up to you; stop the container first.
 
+## Connect other apps
+
+In **Settings**, **API key for other apps** creates a key for Zilcho Forge. The key is shown once, and can be replaced or removed. It works only on three calls, sent in an `X-Api-Key` header: test the connection, request subtitles for a video inside your collections, and read that request's progress. It cannot sign in, change settings or touch files. Requests use your saved speech model and options, only make languages that are missing, and never replace an existing file. Keep the app on your private network.
+
 ## Good to know
 
 - Speech recognition makes mistakes, especially with music, overlapping voices, names and short lines. **Dialogue cleanup** in Settings helps with lines buried under crowds or music. Check important subtitles before relying on them.

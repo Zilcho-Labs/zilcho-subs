@@ -63,7 +63,6 @@ def test_login_throttle(client):
 
 def test_branding_assets_are_served_locally_without_weakening_auth(client):
     from html.parser import HTMLParser
-    import xml.etree.ElementTree as ET
     class Assets(HTMLParser):
         def __init__(self): super().__init__(); self.urls = set()
         def handle_starttag(self, tag, attrs):
@@ -75,14 +74,12 @@ def test_branding_assets_are_served_locally_without_weakening_auth(client):
         response = client.get(url)
         assert response.status_code == 200, url
         assert response.headers['Content-Security-Policy'].startswith("default-src 'self'")
-    svg = client.get('/static/branding/mark.svg')
-    assert 'image/svg+xml' in svg.headers['Content-Type']
-    root = ET.fromstring(svg.content)
-    assert root.attrib['viewBox'] == '0 0 96 96'
-    assert not any(n.tag.split('}')[-1] in ('script', 'foreignObject') for n in root.iter())
+    mark = client.get('/static/branding/mark.png')
+    assert mark.content.startswith(b'\x89PNG\r\n\x1a\n')
+    import struct
+    assert struct.unpack('>II', mark.content[16:24]) == (128, 128)
     png = client.get('/static/branding/app-logo.png')
     assert png.content.startswith(b'\x89PNG\r\n\x1a\n')
-    import struct
     assert struct.unpack('>II', png.content[16:24]) == (512, 512)
-    assert len(png.content) < 150_000
+    assert len(png.content) < 450_000  # full colour: a 256-colour palette banded the glow
     assert client.get('/api/state').status_code == 401
