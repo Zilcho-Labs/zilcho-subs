@@ -4,7 +4,7 @@ The seven PNG files in `originals/` were supplied by the owner as Copilot design
 
 ## App use
 
-- `zl-tile.png` (cut from the owner's `ZLSubsApp_Square.png`, Nov 26, 2026) is the source for `app-logo.png` (sign-in, About, Unraid icon; 512x512, full colour, under 450 KB) and `mark.png` (sidebar, favicon, queue illustration).
+- `zl-tile.png` (cut from the owner's `ZLTeal.jpg`, Nov 27, 2026, with see-through corners) is the source for `app-logo.png` (sign-in, About, Unraid icon; 512x512, full colour, under 450 KB) and `mark.png` (sidebar, favicon, queue illustration).
 - `branding.css` carries the navy and teal palette and the responsive sign-in layout. It uses system fonts and local assets only.
 - The PNGs in `originals/` are the earlier design and are no longer used by the app.
 

@@ -4,6 +4,10 @@ What changed in each version of Zilcho Subs, newest first. The version shown in
 the app's footer comes from `zilcho_subs/__init__.py`. How and when to raise it
 is in [VERSIONING.md](VERSIONING.md).
 
+## 0.16.1 (November 27, 2026)
+
+- **New icon:** the teal ZL icon with the glowing border.
+
 ## 0.16.0 (November 26, 2026)
 
 - **API key for other apps.** In Settings you can create a key that lets Zilcho
